@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "findings.reviewed.schema.json",
+  "title": "Reviewed findings",
+  "description": "Written by `qa-reviewer`. Presence and validity of this file is what the qa-review-gate hook checks; if it is missing or malformed the pipeline stops.\n\n`qa-reviewer` did not propose these findings, so rejecting one costs it nothing. `candidates_digest` binds the review to one specific candidate set, so a review cannot be carried over from a different or stale file.",
+
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "reviewed_at", "reviewed_by", "candidates_digest", "reviews"],
+
+  "properties": {
+    "run_id": { "$ref": "common.schema.json#/$defs/run_id" },
+    "reviewed_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "reviewed_by": { "const": "qa-reviewer" },
+
+    "candidates_digest": {
+      "$ref": "common.schema.json#/$defs/digest",
+      "description": "Digest of findings.candidates.json. Verified by the gate."
+    },
+
+    "reviews": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "Exactly one entry per candidate. The gate rejects the run if any candidate is unreviewed or any review names a candidate that does not exist -- silently dropping an inconvenient candidate is otherwise the path of least resistance.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["finding_id", "verdict", "rationale"],
+
+        "properties": {
+          "finding_id": { "type": "string", "pattern": "^F-[0-9]{3,4}$" },
+
+          "verdict": {
+            "type": "string",
+            "enum": ["accepted", "rejected", "merged"]
+          },
+
+          "rationale": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 800,
+            "description": "Why. A minimum length is enforced because 'looks fine' is not a review, and an unenforced minimum reliably produces 'looks fine'."
+          },
+
+          "rejection_reason": {
+            "type": "string",
+            "enum": [
+              "no_evidence",
+              "not_a_defect",
+              "duplicate",
+              "out_of_scope",
+              "persona_drift_artifact",
+              "unreproducible_claim",
+              "expected_behavior"
+            ],
+            "description": "Required when verdict is 'rejected'. Enumerated rather than free text so that rejection patterns are analyzable across runs: a reviewer that only ever rejects for 'no_evidence' is not exercising the other axes.\n\n'persona_drift_artifact' means the finding is real but was only reachable by an agent behaving out of character -- a defect a QA engineer would find, which this run was not for."
+          },
+
+          "merged_into": {
+            "type": "string",
+            "pattern": "^F-[0-9]{3,4}$",
+            "description": "Required when verdict is 'merged'."
+          },
+
+          "adjusted_severity": { "$ref": "common.schema.json#/$defs/severity" },
+          "adjusted_confidence": { "$ref": "common.schema.json#/$defs/confidence" }
+        },
+
+        "allOf": [
+          {
+            "if": { "properties": { "verdict": { "const": "rejected" } }, "required": ["verdict"] },
+            "then": { "required": ["rejection_reason"] }
+          },
+          {
+            "if": { "properties": { "verdict": { "const": "merged" } }, "required": ["verdict"] },
+            "then": { "required": ["merged_into"] }
+          }
+        ]
+      }
+    },
+
+    "accepted": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "finding.schema.json" },
+      "description": "The findings whose verdict was 'accepted', carried forward in full with any severity/confidence adjustments applied. Redundant with `reviews` on purpose: downstream consumers read one array instead of performing a join, and the gate checks the two agree."
+    },
+
+    "reviewer_note": { "type": "string", "maxLength": 1000 }
+  }
+}

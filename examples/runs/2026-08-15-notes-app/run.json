@@ -1,0 +1,41 @@
+{
+  "run_id": "2026-08-15-notes-app",
+  "created_at": "2026-08-15T16:09:44Z",
+  "created_by": "qa-orchestrator",
+  "persona": {
+    "id": "time-starved-parent",
+    "version": "1.0.0",
+    "card_digest": "sha256:1048bae7e0740c4d6d0343a12eb0032af99069f5c1140165bf5968b220da3568"
+  },
+  "target": {
+    "name": "notes-app",
+    "build": "a1b2c3d",
+    "platform": "iOS 18.2, iPhone 13",
+    "entrypoint": "TestFlight build 412"
+  },
+  "stopping_conditions": {
+    "step_budget": 40,
+    "goal_satisfaction": {
+      "success_criteria": [
+        "The task I came to do is saved and visible when I reopen the app",
+        "I did not have to re-enter anything I had already entered"
+      ],
+      "allow_unreachable": true
+    },
+    "blocked_state": {
+      "no_state_change_steps": 2
+    },
+    "scope_bounds": {
+      "out_of_scope": [
+        "Settings screens beyond notifications",
+        "Account deletion or data export",
+        "Anything requiring a desktop browser",
+        "Help documentation and support chat"
+      ]
+    }
+  },
+  "drift_control": {
+    "reinject_every_steps": 8,
+    "enforce_never_uses": true
+  }
+}

@@ -1,0 +1,16 @@
+# Real runs. The worked example under examples/ is committed on purpose;
+# everything produced by an actual session is local.
+/runs/
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Local overrides of the committed hook wiring.
+.claude/settings.local.json

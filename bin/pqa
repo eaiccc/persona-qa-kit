@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Entry point for the pqa CLI. No install step, no virtualenv, no dependencies:
+# the enforcement layer has to run wherever the pipeline runs, including inside
+# a hook on a machine nobody prepared.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PQA_HOME="${PQA_HOME:-$ROOT}"
+export PYTHONPATH="$ROOT/tools${PYTHONPATH:+:$PYTHONPATH}"
+
+exec python3 -m pqa "$@"

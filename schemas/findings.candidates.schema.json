@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "findings.candidates.schema.json",
+  "title": "Candidate findings",
+  "description": "Written by `qa-agent` from the session log alone. These are proposals, not defects: nothing here has been accepted yet, and the file name says so.\n\nqa-agent never touched the app, so it has no transcript of its own to defend. That is the entire reason this step is a separate agent rather than a final section of the user-agent's output (DESIGN.md section 1).",
+
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "generated_at", "generated_by", "session_digest", "findings"],
+
+  "properties": {
+    "run_id": { "$ref": "common.schema.json#/$defs/run_id" },
+    "generated_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "generated_by": { "const": "qa-agent" },
+
+    "session_digest": {
+      "$ref": "common.schema.json#/$defs/digest",
+      "description": "Digest of the session.jsonl these were derived from."
+    },
+
+    "findings": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "finding.schema.json" },
+      "description": "May be empty. An empty candidate set is a legitimate outcome and must not be treated as a failed run -- the opposite assumption is what produces invented findings."
+    },
+
+    "coverage_note": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "What the session did not reach, so that absence of findings in an area is not read as evidence of quality there."
+    }
+  }
+}

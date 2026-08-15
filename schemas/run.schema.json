@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "run.schema.json",
+  "title": "Run manifest",
+  "description": "Written by `qa-orchestrator` BEFORE user-agent starts, and sealed with `pqa seal`, which records a digest in run.lock. The review gate refuses to advance if run.json changed after sealing.\n\nThe ordering is the whole point (DESIGN.md section 3): stopping conditions decided during execution are decided by the party with an interest in the outcome. Deciding them in advance and hashing them removes that option rather than discouraging it.",
+
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "created_at", "created_by", "persona", "target", "stopping_conditions"],
+
+  "properties": {
+    "run_id": { "$ref": "common.schema.json#/$defs/run_id" },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "created_by": { "const": "qa-orchestrator" },
+
+    "persona": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "card_digest"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/persona_id" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" },
+        "card_digest": {
+          "$ref": "common.schema.json#/$defs/digest",
+          "description": "Digest of the persona card as loaded. Binds the run to exact card content, so a card edited mid-run invalidates the run instead of silently changing the rules."
+        }
+      }
+    },
+
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "build"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "build": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Commit sha, version, or build number. Without this, cross-run comparison compares nothing in particular."
+        },
+        "platform": { "type": "string", "maxLength": 80 },
+        "entrypoint": { "type": "string", "maxLength": 400 }
+      }
+    },
+
+    "stopping_conditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step_budget", "goal_satisfaction", "blocked_state", "scope_bounds"],
+      "properties": {
+        "step_budget": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "description": "Hard ceiling on observation records. A blunt instrument by design -- the right value is empirical and app-specific, which is why it is configuration and not a constant."
+        },
+
+        "goal_satisfaction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["success_criteria"],
+          "properties": {
+            "success_criteria": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": { "type": "string", "minLength": 5, "maxLength": 200 },
+              "description": "Copied from the persona card at seal time so the run manifest is self-contained."
+            },
+            "allow_unreachable": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether 'provably unreachable' is an acceptable end state. Usually yes: a criterion that cannot be met is a finding, not a failure of the run."
+            }
+          }
+        },
+
+        "blocked_state": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["no_state_change_steps"],
+          "properties": {
+            "no_state_change_steps": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 20,
+              "description": "Consecutive steps with no observable state change before the run terminates as blocked."
+            }
+          }
+        },
+
+        "scope_bounds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["out_of_scope"],
+          "properties": {
+            "out_of_scope": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 15,
+              "items": { "type": "string", "minLength": 3, "maxLength": 200 }
+            }
+          }
+        }
+      }
+    },
+
+    "drift_control": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reinject_every_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 8,
+          "description": "Cadence at which persona-drift-check reinserts the persona summary and writes a persona_injection record."
+        },
+        "enforce_never_uses": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, a never_uses hit fails the drift check rather than warning. Set false only while calibrating a new card's vocabulary list."
+        }
+      }
+    },
+
+    "notes": { "type": "string", "maxLength": 1000 }
+  }
+}

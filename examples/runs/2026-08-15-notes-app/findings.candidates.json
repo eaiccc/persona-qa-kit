@@ -1,0 +1,102 @@
+{
+  "run_id": "2026-08-15-notes-app",
+  "generated_at": "2026-08-15T09:34:00Z",
+  "generated_by": "qa-agent",
+  "session_digest": "sha256:e610ecdf4eb45ec2cc589daca38a1fb48e8bae1b63843f553c7e5383b0367375",
+
+  "findings": [
+    {
+      "id": "F-001",
+      "fingerprint": "pqa1:305363d41af26da9",
+      "surface": "notes/editor",
+      "action_class": "background",
+      "symptom_class": "data_loss",
+      "title": "Note text is lost when the app is backgrounded before saving",
+      "user_voice": "my note is gone. I typed all that out for nothing",
+      "technical_hypothesis": "Editor content appears to be held only in view state and discarded on teardown. Possibly nothing is written until the Done action completes, so an interruption between typing and saving loses everything. Worth checking whether the app persists a draft on the background lifecycle callback at all.",
+      "severity": "blocker",
+      "confidence": "confirmed",
+      "expected": "The note would still be there on returning to the app",
+      "observed": "The list was empty and the typed text was gone",
+      "evidence_refs": [
+        { "kind": "session_log", "steps": [3, 5] },
+        { "kind": "artifact", "path": "screenshots/step-005.png" }
+      ],
+      "reproduction": [
+        "Open the app and tap the plus button",
+        "Type several lines of text without saving",
+        "Background the app (incoming call, or home gesture)",
+        "Reopen the app"
+      ],
+      "persona_relevance": "This persona is interrupted every couple of minutes by definition, so she reaches this path on almost any session longer than a minute. A user who finishes what they start would never see it.",
+      "tags": ["persistence", "lifecycle"]
+    },
+
+    {
+      "id": "F-002",
+      "fingerprint": "pqa1:5c9768281b4dc1ac",
+      "surface": "notes/editor",
+      "action_class": "submit",
+      "symptom_class": "no_feedback",
+      "title": "Done gives no indication whether the note was saved",
+      "user_voice": "I have no idea if any of this is saved. I will sort it out later",
+      "technical_hypothesis": "The control changes appearance briefly and then reverts with no navigation and no confirmation. Possibly a save request that fails silently, or a disabled state during an in-flight request with no spinner. Either way there is no success or failure state rendered.",
+      "severity": "major",
+      "confidence": "probable",
+      "expected": "Pressing Done would save the note and return to the list",
+      "observed": "The control greyed briefly and the screen did not change, twice",
+      "evidence_refs": [
+        { "kind": "session_log", "steps": [8, 9] }
+      ],
+      "reproduction": [
+        "Open a new note and type any text",
+        "Tap Done in the top corner",
+        "Observe that the screen does not change"
+      ],
+      "persona_relevance": "She abandons after the second attempt rather than investigating, so the app loses her here regardless of whether the save actually succeeded.",
+      "tags": ["feedback", "save"]
+    },
+
+    {
+      "id": "F-003",
+      "fingerprint": "pqa1:ef827314c018d502",
+      "surface": "notes/list",
+      "action_class": "navigate",
+      "symptom_class": "confusing_affordance",
+      "title": "Empty notes list gives no explanation of what to do",
+      "user_voice": "fine, nothing in here yet",
+      "technical_hypothesis": "The empty state renders as a blank white page with only a plus control in the corner, with no label or hint text.",
+      "severity": "minor",
+      "confidence": "possible",
+      "expected": "Some indication of what this screen is for",
+      "observed": "A blank white page with a plus sign",
+      "evidence_refs": [
+        { "kind": "session_log", "steps": [1] }
+      ],
+      "persona_relevance": "She found the plus control immediately, so this did not actually cost her anything.",
+      "tags": ["empty-state"]
+    },
+
+    {
+      "id": "F-004",
+      "fingerprint": "pqa1:b2d9a527901d7fa9",
+      "surface": "notes/editor",
+      "action_class": "type",
+      "symptom_class": "slow",
+      "title": "Typing in the editor may be laggy on longer notes",
+      "user_voice": "ok, that is most of it",
+      "technical_hypothesis": "The gap between the step 3 and step 4 timestamps suggests typing took longer than the text length would imply, which may indicate per-keystroke work in the editor.",
+      "severity": "minor",
+      "confidence": "speculative",
+      "expected": "Typing keeps up with the user",
+      "observed": "Text entry of roughly 90 characters spans 82 seconds of wall clock",
+      "evidence_refs": [
+        { "kind": "session_log", "steps": [3] }
+      ],
+      "persona_relevance": "She is typing one-handed while distracted, so slow entry would compound.",
+      "tags": ["performance"]
+    }
+  ],
+
+  "coverage_note": "The session never reached an existing note, editing, deletion, search, or any settings surface. It terminated blocked at step 10 of a 40 step budget, so the absence of findings outside the create-note flow says nothing about those areas. Sync and multi-device behaviour were not exercised at all."
+}

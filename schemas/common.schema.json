@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "common.schema.json",
+  "title": "Shared definitions",
+  "description": "Vocabularies shared across the pipeline. The enums here exist so that defect identity is computed from constrained values rather than free text -- see DESIGN.md section 2 on fingerprint stability.",
+
+  "$defs": {
+    "persona_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 3,
+      "maxLength": 60,
+      "description": "Filename stem of a card in personas/, e.g. 'time-starved-parent'."
+    },
+
+    "semver": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Content hash binding one artifact to another, so a downstream step cannot be run against a different input than the one it claims."
+    },
+
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "Date-prefixed slug, e.g. '2026-08-15-notes-app'."
+    },
+
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+
+    "surface": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[-/][a-z0-9]+)*$",
+      "minLength": 2,
+      "maxLength": 80,
+      "description": "Normalized screen or route identifier, e.g. 'settings/notifications'. Deliberately coarse: it is a fingerprint input, and free-form surface names are the main cause of fingerprint churn."
+    },
+
+    "action_class": {
+      "type": "string",
+      "enum": [
+        "navigate", "tap", "type", "submit", "scroll", "search", "upload",
+        "wait", "back", "dismiss", "background", "resume", "restart", "none"
+      ],
+      "description": "What kind of interaction this was. A closed set, because it is a fingerprint input."
+    },
+
+    "symptom_class": {
+      "type": "string",
+      "enum": [
+        "crash",
+        "data_loss",
+        "state_desync",
+        "no_feedback",
+        "wrong_result",
+        "blocked_flow",
+        "slow",
+        "confusing_affordance",
+        "unreadable_content",
+        "unexpected_cost",
+        "access_barrier"
+      ],
+      "$comment": "'access_barrier' covers accessibility failures. It is in the taxonomy on purpose: DESIGN.md section 1 names accessibility as the example of a blind spot shared by proposer and reviewer, and a named slot in a required enum is a weak but real prompt to consider the category. It does not solve the problem -- an agent can still never select it.",
+      "description": "Coarse symptom taxonomy. A fingerprint input, so the set is closed and stable across versions."
+    },
+
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^pqa1:[0-9a-f]{16}$",
+      "description": "Stable defect identity: sha256 over (surface, action_class, symptom_class), truncated, with a version prefix. Recomputed and verified by the review gate -- an agent cannot mint a fingerprint that dodges cross-run matching."
+    },
+
+    "evidence_ref": {
+      "type": "object",
+      "description": "A pointer to something that actually exists. Findings without at least one of these fail validation -- the cheapest available guard against fabricated defects.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "steps"],
+          "properties": {
+            "kind": { "const": "session_log" },
+            "steps": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 1 },
+              "minItems": 1,
+              "maxItems": 2,
+              "description": "One step number, or an inclusive [start, end] range. Resolved against the session log by the review gate."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": { "const": "artifact" },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300,
+              "description": "Path relative to the run directory. The review gate checks that the file exists."
+            }
+          }
+        }
+      ]
+    },
+
+    "severity": {
+      "type": "string",
+      "enum": ["blocker", "major", "minor", "cosmetic"],
+      "description": "How much this hurts the persona if it is real. Impact only. Deliberately shares no words with `confidence`, so that 'I am unsure' cannot be spelled using this scale."
+    },
+
+    "confidence": {
+      "type": "string",
+      "enum": ["confirmed", "probable", "possible", "speculative"],
+      "description": "How likely it is that this is real at all. Epistemic only. Deliberately shares no words with `severity`. DESIGN.md section 2: conflating the two silently downgrades genuine high-severity findings."
+    }
+  }
+}

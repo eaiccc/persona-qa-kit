@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "evaluation.schema.json",
+  "title": "Run evaluation",
+  "description": "Written by `persona-evaluator`. This file is the meta-layer the rest of the pipeline lacks: an assessment not of the product, but of whether this run is trustworthy evidence about the product (DESIGN.md section 4).\n\nNote the apparent inconsistency with session-record.schema.json, which forbids verdict fields: this schema has `trust.verdict`. That is deliberate and not a contradiction. The prohibition is on an agent certifying its own work. persona-evaluator judges a session it did not run, about an app it never touched.",
+
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "evaluated_at", "evaluated_by", "persona", "consistency", "drift", "trust"],
+
+  "properties": {
+    "run_id": { "$ref": "common.schema.json#/$defs/run_id" },
+    "evaluated_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "evaluated_by": { "const": "persona-evaluator" },
+
+    "persona": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/persona_id" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" }
+      }
+    },
+
+    "consistency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["overall", "first_half", "second_half", "trend"],
+      "description": "Drift is progressive, so the halves are scored separately. A single whole-session score averages the drift away and reports a healthy-looking number for a run that fell apart at step 20.",
+      "properties": {
+        "overall": { "type": "number", "minimum": 0, "maximum": 1 },
+        "first_half": { "type": "number", "minimum": 0, "maximum": 1 },
+        "second_half": { "type": "number", "minimum": 0, "maximum": 1 },
+        "trend": { "type": "string", "enum": ["stable", "declining", "improving"] }
+      }
+    },
+
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Component scores. Separated because they fail independently: an agent can keep the persona's vocabulary perfectly while troubleshooting with a patience the persona does not have.",
+      "properties": {
+        "vocabulary": { "type": "number", "minimum": 0, "maximum": 1 },
+        "patience": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reading_behavior": { "type": "number", "minimum": 0, "maximum": 1 },
+        "goal_fidelity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "scope_adherence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+
+    "drift": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lexical_violations", "injection_steps"],
+      "properties": {
+        "lexical_violations": {
+          "type": "array",
+          "maxItems": 200,
+          "description": "Copied from `pqa drift`, which is a deterministic string match. Included here so the evaluator's soft judgment and the hard check sit side by side in one file.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["step", "term", "quote"],
+            "properties": {
+              "step": { "type": "integer", "minimum": 0 },
+              "term": { "type": "string", "minLength": 1, "maxLength": 60 },
+              "field": { "type": "string", "maxLength": 40 },
+              "quote": { "type": "string", "minLength": 1, "maxLength": 300 }
+            }
+          }
+        },
+        "injection_steps": {
+          "type": "array",
+          "maxItems": 200,
+          "items": { "type": "integer", "minimum": 0 },
+          "description": "Steps at which the persona summary was re-injected."
+        },
+        "behavioral_notes": {
+          "type": "array",
+          "maxItems": 30,
+          "items": { "type": "string", "minLength": 10, "maxLength": 400 },
+          "description": "Drift the string check cannot see: an agent that avoids every forbidden term while still behaving like an engineer. This is the only guard against behavioural drift, and it is a soft one."
+        }
+      }
+    },
+
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "rationale"],
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": ["trustworthy", "degraded", "untrustworthy"],
+          "description": "'degraded' means the findings are usable but the coverage claim is not: the run stopped behaving like the persona partway through, so what it did NOT find says nothing."
+        },
+        "rationale": { "type": "string", "minLength": 20, "maxLength": 800 },
+        "usable_through_step": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "For a degraded run: the last step at which the agent was still in character. Findings after this point are still real, but they are a QA engineer's findings, not this persona's."
+        }
+      }
+    },
+
+    "notes": { "type": "string", "maxLength": 2000 }
+  }
+}

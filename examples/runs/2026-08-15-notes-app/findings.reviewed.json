@@ -1,0 +1,88 @@
+{
+  "run_id": "2026-08-15-notes-app",
+  "reviewed_at": "2026-08-15T09:51:00Z",
+  "reviewed_by": "qa-reviewer",
+  "candidates_digest": "sha256:72c73253eba754b0e8cb40659fef6784c33d56962c6eee25e7d74fdf6f0e66ea",
+
+  "reviews": [
+    {
+      "finding_id": "F-001",
+      "verdict": "accepted",
+      "rationale": "Steps 3 and 5 support this directly: text is entered at step 3, the app is backgrounded at step 4, and step 5 shows the list in its original empty state. The screenshot matches. Severity blocker is right for this persona -- the card's own success criterion is that nothing has to be re-entered, and this violates it outright."
+    },
+    {
+      "finding_id": "F-002",
+      "verdict": "accepted",
+      "adjusted_confidence": "confirmed",
+      "rationale": "Raising confidence from probable to confirmed. The finding as written hedges on whether the save failed, but that is a hypothesis about the cause, not about the symptom. The symptom -- two submits with no state change and no confirmation -- is directly in steps 8 and 9 and in the blocked record at step 10. The cause remains unknown and the technical_hypothesis is correctly tentative about it."
+    },
+    {
+      "finding_id": "F-003",
+      "verdict": "rejected",
+      "rejection_reason": "expected_behavior",
+      "rationale": "An empty list is the correct state for someone who has never added a note, and the log contradicts the finding's own premise: at step 1 she says 'fine, nothing in here yet' and at step 2 she finds the plus control immediately. The finding's persona_relevance field concedes it cost her nothing. A blank empty state is worth a design conversation but it is not a defect this session found."
+    },
+    {
+      "finding_id": "F-004",
+      "verdict": "rejected",
+      "rejection_reason": "no_evidence",
+      "rationale": "The cited evidence does not support the claim. The gap between the step 3 and step 4 timestamps is the interval between two log records, not a measurement of input latency -- it covers her composing the note while distracted. Nothing in the session log observes lag, and her own reaction at step 3 is 'ok, that is most of it', which is not what a person says about a laggy editor. This is inference from a timestamp dressed as an observation."
+    }
+  ],
+
+  "accepted": [
+    {
+      "id": "F-001",
+      "fingerprint": "pqa1:305363d41af26da9",
+      "surface": "notes/editor",
+      "action_class": "background",
+      "symptom_class": "data_loss",
+      "title": "Note text is lost when the app is backgrounded before saving",
+      "user_voice": "my note is gone. I typed all that out for nothing",
+      "technical_hypothesis": "Editor content appears to be held only in view state and discarded on teardown. Possibly nothing is written until the Done action completes, so an interruption between typing and saving loses everything. Worth checking whether the app persists a draft on the background lifecycle callback at all.",
+      "severity": "blocker",
+      "confidence": "confirmed",
+      "expected": "The note would still be there on returning to the app",
+      "observed": "The list was empty and the typed text was gone",
+      "evidence_refs": [
+        { "kind": "session_log", "steps": [3, 5] },
+        { "kind": "artifact", "path": "screenshots/step-005.png" }
+      ],
+      "reproduction": [
+        "Open the app and tap the plus button",
+        "Type several lines of text without saving",
+        "Background the app (incoming call, or home gesture)",
+        "Reopen the app"
+      ],
+      "persona_relevance": "This persona is interrupted every couple of minutes by definition, so she reaches this path on almost any session longer than a minute. A user who finishes what they start would never see it.",
+      "tags": ["persistence", "lifecycle"]
+    },
+
+    {
+      "id": "F-002",
+      "fingerprint": "pqa1:5c9768281b4dc1ac",
+      "surface": "notes/editor",
+      "action_class": "submit",
+      "symptom_class": "no_feedback",
+      "title": "Done gives no indication whether the note was saved",
+      "user_voice": "I have no idea if any of this is saved. I will sort it out later",
+      "technical_hypothesis": "The control changes appearance briefly and then reverts with no navigation and no confirmation. Possibly a save request that fails silently, or a disabled state during an in-flight request with no spinner. Either way there is no success or failure state rendered.",
+      "severity": "major",
+      "confidence": "confirmed",
+      "expected": "Pressing Done would save the note and return to the list",
+      "observed": "The control greyed briefly and the screen did not change, twice",
+      "evidence_refs": [
+        { "kind": "session_log", "steps": [8, 9] }
+      ],
+      "reproduction": [
+        "Open a new note and type any text",
+        "Tap Done in the top corner",
+        "Observe that the screen does not change"
+      ],
+      "persona_relevance": "She abandons after the second attempt rather than investigating, so the app loses her here regardless of whether the save actually succeeded.",
+      "tags": ["feedback", "save"]
+    }
+  ],
+
+  "reviewer_note": "Two of four candidates rejected. Both rejections are about evidence rather than about plausibility: F-003 is contradicted by the log it cites, and F-004 infers a symptom the session never observed. Note that F-004 is the shape to watch for -- a well-formed, schema-valid finding with a real evidence reference attached to a claim the evidence does not make. Schemas constrain form, not truth."
+}

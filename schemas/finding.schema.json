@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "finding.schema.json",
+  "title": "Finding",
+  "description": "One candidate defect. Free text is confined to named fields with defined roles, so that two runs against the same build produce comparable records rather than two essays. See DESIGN.md section 2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "fingerprint",
+    "surface",
+    "action_class",
+    "symptom_class",
+    "title",
+    "user_voice",
+    "technical_hypothesis",
+    "severity",
+    "confidence",
+    "evidence_refs"
+  ],
+
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^F-[0-9]{3,4}$",
+      "description": "Identifier within this run only. Cross-run identity is `fingerprint`, not this."
+    },
+
+    "fingerprint": { "$ref": "common.schema.json#/$defs/fingerprint" },
+    "surface": { "$ref": "common.schema.json#/$defs/surface" },
+    "action_class": { "$ref": "common.schema.json#/$defs/action_class" },
+    "symptom_class": { "$ref": "common.schema.json#/$defs/symptom_class" },
+
+    "title": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 120,
+      "description": "One line, in plain language. Not a summary of the whole finding."
+    },
+
+    "user_voice": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 600,
+      "description": "The persona's own framing, preserved verbatim from the session log: 'I came back and my stuff was gone.' Do NOT pre-translate this into engineering language -- that translation is where most of the diagnostic signal is lost, and it is unrecoverable once done."
+    },
+
+    "technical_hypothesis": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 1200,
+      "description": "What an engineer might look at first. A hypothesis, explicitly not a diagnosis: the agent never saw the code."
+    },
+
+    "severity": { "$ref": "common.schema.json#/$defs/severity" },
+    "confidence": { "$ref": "common.schema.json#/$defs/confidence" },
+
+    "evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": { "$ref": "common.schema.json#/$defs/evidence_ref" },
+      "description": "At least one. Resolved against real files by the review gate."
+    },
+
+    "expected": {
+      "type": "string",
+      "maxLength": 400,
+      "description": "What the persona expected to happen, in their terms."
+    },
+
+    "observed": {
+      "type": "string",
+      "maxLength": 400,
+      "description": "What actually happened, described without interpretation."
+    },
+
+    "reproduction": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "type": "string", "minLength": 3, "maxLength": 200 },
+      "description": "Ordered steps. Each one must correspond to something in the session log."
+    },
+
+    "persona_relevance": {
+      "type": "string",
+      "maxLength": 400,
+      "description": "Why this persona in particular hit this. If the answer is 'any user would', say so -- that is useful, not a weakness."
+    },
+
+    "tags": {
+      "type": "array",
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 40 }
+    }
+  }
+}

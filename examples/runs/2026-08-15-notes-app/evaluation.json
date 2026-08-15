@@ -1,0 +1,42 @@
+{
+  "run_id": "2026-08-15-notes-app",
+  "evaluated_at": "2026-08-15T09:58:00Z",
+  "evaluated_by": "persona-evaluator",
+
+  "persona": {
+    "id": "time-starved-parent",
+    "version": "1.0.0"
+  },
+
+  "consistency": {
+    "overall": 0.91,
+    "first_half": 0.94,
+    "second_half": 0.88,
+    "trend": "stable"
+  },
+
+  "dimensions": {
+    "vocabulary": 0.96,
+    "patience": 0.9,
+    "reading_behavior": 0.92,
+    "goal_fidelity": 0.88,
+    "scope_adherence": 1.0
+  },
+
+  "drift": {
+    "lexical_violations": [],
+    "injection_steps": [8],
+    "behavioral_notes": [
+      "Retry count is correct. The card sets retry_tolerance to 1 and the session submits twice at steps 8 and 9, then stops. This is the dial that usually fails first and it held.",
+      "Step 7 is the strongest in-character moment: she retypes a shorter version rather than reconstructing the original text. A tester would have retyped it verbatim to keep the comparison clean.",
+      "Slight goal_fidelity slip at step 9. 'pressing properly this time' reads as a deliberate variation of the input to isolate a cause, which is a tester's instinct. It is one clause and the retry count still respects the card, so it does not change the verdict -- but it is the seam where a longer session would have started to come apart."
+    ]
+  },
+
+  "trust": {
+    "verdict": "trustworthy",
+    "rationale": "In character throughout. No vocabulary breaches, retries within tolerance, no out-of-scope surfaces entered, and the observations stay descriptive rather than diagnostic. The session is short enough that drift had little room to develop, which is a reason for confidence in this run and not evidence that longer runs would hold."
+  },
+
+  "notes": "The second-half score is lower than the first mainly on the step 9 phrasing noted above, not on any measured behaviour. Read this as a nine-step session that ended before drift became a real risk, rather than as a demonstration that the drift controls work -- one persona re-injection fired, at step 8, and the run terminated two steps later. A clean drift report on a short session is weak evidence. This evaluation shares a model family with the agent it is grading, so 'no drift detected' is the honest claim here, not 'no drift occurred'."
+}

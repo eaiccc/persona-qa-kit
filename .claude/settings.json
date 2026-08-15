@@ -1,0 +1,55 @@
+{
+  "$comment": [
+    "Hook wiring. These two entries are the difference between a design document",
+    "and a working constraint: everything the agents are told about review and",
+    "persona drift is a request until something outside them refuses to advance.",
+    "",
+    "persona-drift-check runs after the session log is appended to, so a",
+    "vocabulary breach fails the step it happened on rather than being noticed",
+    "after the run is over.",
+    "",
+    "qa-review-gate runs on Stop and SubagentStop, which is where an agent would",
+    "otherwise declare itself finished."
+  ],
+
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/hooks/persona-drift-check.sh",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/hooks/qa-review-gate.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/hooks/qa-review-gate.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "session-record.schema.json",
+  "title": "Session log record",
+  "description": "One line of session.jsonl, written by `user-agent`.\n\nRead the property list and note what is absent: there is no `severity`, no `pass`, no `status`, no `verdict`, no `issue`, no `recommendation`. This is the enforcement described in DESIGN.md section 1. The user-agent cannot certify that the app works, because there is nowhere in this schema to write a certification, and `additionalProperties: false` means inventing a field fails validation rather than being ignored.\n\n`pqa validate` additionally reports a named error when a record carries a verdict-shaped key, because 'property \"severity\" is not allowed here' is a less useful message than an explanation of why.",
+
+  "type": "object",
+  "required": ["kind", "step", "ts"],
+
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": ["observation", "persona_injection", "blocked", "terminated"]
+    },
+    "step": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonic within a run. Referenced by `evidence_refs` in findings."
+    },
+    "ts": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+
+  "oneOf": [
+    {
+      "title": "observation",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "step", "ts", "action", "expected", "observed", "felt"],
+      "properties": {
+        "kind": { "const": "observation" },
+        "step": { "type": "integer", "minimum": 1 },
+        "ts": { "$ref": "common.schema.json#/$defs/timestamp" },
+
+        "action": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "target"],
+          "properties": {
+            "class": { "$ref": "common.schema.json#/$defs/action_class" },
+            "target": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "What was acted on, as the persona would name it ('the blue Save button'), not as the DOM names it."
+            },
+            "surface": { "$ref": "common.schema.json#/$defs/surface" },
+            "input": { "type": "string", "maxLength": 500 }
+          }
+        },
+
+        "expected": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 500,
+          "description": "What the persona expected BEFORE acting. Required on every step: committing to an expectation in advance is a small guard against writing the expectation to fit the outcome."
+        },
+
+        "observed": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 1000,
+          "description": "What appeared on screen. Description, not interpretation: 'the list is empty', not 'the data failed to load'."
+        },
+
+        "felt": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 400,
+          "description": "The persona's reaction, in the persona's words. This field is the raw material for `user_voice` in a finding, so its register matters more than its accuracy."
+        },
+
+        "artifacts": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "description": "Paths relative to the run directory, e.g. 'screenshots/step-004.png'."
+        }
+      }
+    },
+
+    {
+      "title": "persona_injection",
+      "description": "Written by the persona-drift-check hook, not by the agent. Its presence at the expected cadence is checked by `pqa drift`.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "step", "ts", "persona_id", "card_digest"],
+      "properties": {
+        "kind": { "const": "persona_injection" },
+        "step": { "type": "integer", "minimum": 0 },
+        "ts": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "persona_id": { "$ref": "common.schema.json#/$defs/persona_id" },
+        "card_digest": { "$ref": "common.schema.json#/$defs/digest" }
+      }
+    },
+
+    {
+      "title": "blocked",
+      "description": "Repeated interaction with no observable state change. DESIGN.md section 3: an agent stuck in a loop has usually found the defect, so this is recorded rather than silently retried.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "step", "ts", "repeated_steps", "note"],
+      "properties": {
+        "kind": { "const": "blocked" },
+        "step": { "type": "integer", "minimum": 1 },
+        "ts": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "repeated_steps": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 50,
+          "items": { "type": "integer", "minimum": 1 }
+        },
+        "note": { "type": "string", "minLength": 3, "maxLength": 500 }
+      }
+    },
+
+    {
+      "title": "terminated",
+      "description": "The last record in a well-formed session log. `reason` is checked against run.json by the review gate.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "step", "ts", "reason"],
+      "properties": {
+        "kind": { "const": "terminated" },
+        "step": { "type": "integer", "minimum": 0 },
+        "ts": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "goal_met",
+            "goal_unreachable",
+            "step_budget",
+            "blocked",
+            "out_of_scope",
+            "operator_abort"
+          ]
+        },
+        "note": { "type": "string", "maxLength": 500 }
+      }
+    }
+  ]
+}

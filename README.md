@@ -1,0 +1,174 @@
+# persona-qa-kit
+
+Persona-based exploratory QA with LLM agents, built so that the parts you depend
+on are enforced by code rather than requested in a prompt.
+
+A single agent given a persona and an app will produce a convincing report on
+the first run. It will also fail in four specific, reproducible ways. This kit
+is a set of agents, schemas, and hooks arranged to make each of those failures
+either impossible or visible.
+
+**[DESIGN.md](DESIGN.md) is the primary document.** It argues for each of the
+four failure modes, describes the mitigation, and — importantly — states what
+the mitigation does not fix. Everything in this repository is downstream of it.
+If you read one file here, read that one.
+
+---
+
+## The shape of it
+
+```
+qa-orchestrator     writes run.json, seals it            stopping conditions fixed up front
+      |
+      v
+user-agent          uses the app as the persona          records; cannot judge
+      |             -> session.jsonl
+      v
+qa-agent            proposes candidate defects           never touched the app
+      |             -> findings.candidates.json
+      v
+qa-reviewer         accepts / rejects each one           did not propose them
+      |             -> findings.reviewed.json
+      v
+persona-evaluator   scores the run, not the app          -> evaluation.json
+
+  [qa-review-gate]  a shell hook, not an instruction
+```
+
+Four agents instead of one, because an agent asked to both perform work and
+judge that work optimizes for a coherent narrative rather than an accurate one.
+Splitting the roles means the agent doing the rejecting has no prior output to
+contradict.
+
+## Quickstart
+
+No install, no dependencies — the enforcement layer is stdlib Python 3 and runs
+wherever the pipeline runs.
+
+```bash
+./bin/pqa validate --self-check
+```
+
+Look at the worked example before starting your own run. It is a complete,
+gate-passing run of nine steps against a fictional notes app:
+
+```bash
+./bin/pqa gate examples/runs/2026-08-15-notes-app
+```
+
+Then start a real one:
+
+```bash
+./bin/pqa personas
+./bin/pqa new-run --persona time-starved-parent --target my-app --build $(git rev-parse --short HEAD)
+./bin/pqa seal runs/2026-08-15-my-app
+```
+
+`seal` refuses to run once `session.jsonl` exists. That is the point: stopping
+conditions chosen after seeing the results are not stopping conditions.
+
+Then dispatch `qa-orchestrator`, which drives the rest. When it finishes:
+
+```bash
+./bin/pqa gate runs/2026-08-15-my-app
+./bin/pqa signals runs/
+```
+
+## What is actually enforced
+
+The distinction that runs through this repository is between a **request** and a
+**constraint**. "Do not skip the review step" is a request. A hook that refuses
+to advance the pipeline is a constraint. Anything you actually need to be true
+should be a constraint.
+
+| Failure mode | What stops it | Where |
+|---|---|---|
+| Agent certifies its own work | The session log schema has no `severity`, `pass`, or `status` field, and `additionalProperties` is false | [schemas/session-record.schema.json](schemas/session-record.schema.json) |
+| Review gets skipped | Missing or invalid `findings.reviewed.json` blocks completion with exit code 2 | [hooks/qa-review-gate.sh](hooks/qa-review-gate.sh) |
+| A candidate is quietly dropped | Every candidate must have exactly one review; the mapping is checked in both directions | [tools/pqa/gate.py](tools/pqa/gate.py) |
+| Findings are unfalsifiable prose | Every finding validates against a schema; free text is confined to named fields | [schemas/finding.schema.json](schemas/finding.schema.json) |
+| Fabricated defects | `evidence_refs` must resolve to real session steps and real files | [tools/pqa/gate.py](tools/pqa/gate.py) |
+| Defects lose identity between runs | `fingerprint` is derived from constrained values and recomputed by the gate | [tools/pqa/fingerprint.py](tools/pqa/fingerprint.py) |
+| Stopping conditions moved mid-run | `run.json` is hashed into `run.lock` before execution and rechecked after | [tools/pqa/gate.py](tools/pqa/gate.py) |
+| Reviewer rewrites the defect | Accepted findings must match their candidate's fingerprint; only severity and confidence may be adjusted | [tools/pqa/gate.py](tools/pqa/gate.py) |
+| Persona drift | `never_uses` terms are string-matched mid-session and fail the step | [hooks/persona-drift-check.sh](hooks/persona-drift-check.sh) |
+| Persona card edited mid-run | The card digest is bound into `run.json` and verified | [tools/pqa/gate.py](tools/pqa/gate.py) |
+
+Each row has a test that breaks exactly that one thing and asserts the gate
+refuses. A check nobody has watched fail is a check you do not know you have.
+
+```bash
+make test
+```
+
+## Detection signals
+
+Some properties cannot be enforced per-run, only observed across runs.
+`pqa signals` reports the four the design document names:
+
+```bash
+./bin/pqa signals runs/
+```
+
+1. **Acceptance rate stuck at 100%** — the proposer/reviewer separation has
+   collapsed; either the reviewer rubber-stamps or the proposer has learned to
+   propose only safe findings.
+2. **Fingerprint churn** — the same defect getting a new identity every run, so
+   cross-run comparison is not actually working.
+3. **Every run ending at the step budget** — goal satisfaction never fires and
+   the budget is doing all the work.
+4. **Consistency declining within runs** — drift is progressive and systematic.
+
+These describe the pipeline, not the app. All four firing on a green gate means
+the output is well-formed and nobody should believe it.
+
+## Layout
+
+```
+DESIGN.md              the argument; read this first
+personas/*.yaml        persona cards, versioned independently of agent code
+schemas/*.json         the artifact contracts
+.claude/agents/*.md    the five agent definitions
+.claude/settings.json  hook wiring
+hooks/*.sh             the two enforcement hooks
+tools/pqa/             the CLI and every deterministic check
+examples/runs/         one complete, gate-passing run
+tests/                 129 tests, stdlib unittest
+```
+
+## Writing a persona
+
+[docs/writing-personas.md](docs/writing-personas.md) covers the parts that are
+not obvious, particularly calibrating `never_uses` — the list that turns drift
+detection from a judgment call into a string match.
+
+Three cards ship as starting points: `time-starved-parent` (interrupted,
+impatient, low tech literacy), `cautious-first-timer` (its opposite on every
+behavioural dial), and `screen-reader-commuter`.
+
+## What this does not buy
+
+Ground truth. Every layer here is an LLM and correlated errors pass through all
+of them. Schemas constrain form, not truth: a well-formed finding can still be
+wrong, and requiring evidence references raises the cost of fabrication without
+making it impossible.
+
+Role separation defeats motivated reasoning, not shared ignorance. If `qa-agent`
+and `qa-reviewer` both fail to consider an accessibility failure a defect, no
+amount of separation surfaces it — which is why one of the shipped personas
+routes around that particular blind spot rather than relying on the agents to
+overcome it.
+
+This kit produces evidence of a specific and well-characterized quality: good
+enough to route attention, not good enough to be the last gate before release.
+It complements conventional testing rather than replacing it, and its output
+should be read as a prioritized list of things worth a human's attention rather
+than a verdict.
+
+## Requirements
+
+Python 3.9+ and bash. PyYAML is used if present and not needed if absent.
+
+## License
+
+MIT
