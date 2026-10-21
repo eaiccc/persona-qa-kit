@@ -14,15 +14,18 @@ KIT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(KIT / "tools"))
 
 EXAMPLE = KIT / "examples" / "runs" / "2026-08-15-notes-app"
+SCENARIO_EXAMPLE = KIT / "examples" / "runs" / "2026-08-22-notes-app-offline"
 
 
 class KitTestCase(unittest.TestCase):
-    """Copies schemas, personas and the example run into a temp PQA_HOME.
+    """Copies schemas, personas, scenarios and an example run into a temp PQA_HOME.
 
     Tests mutate the copy freely. Every gate test works by taking a run that is
     known to pass and breaking exactly one thing, which is the only way to know
     a check is load-bearing rather than decorative.
     """
+
+    example = EXAMPLE
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -30,8 +33,9 @@ class KitTestCase(unittest.TestCase):
         (self.root / "runs").mkdir(parents=True)
         shutil.copytree(KIT / "schemas", self.root / "schemas")
         shutil.copytree(KIT / "personas", self.root / "personas")
-        self.run_path = self.root / "runs" / "2026-08-15-notes-app"
-        shutil.copytree(EXAMPLE, self.run_path)
+        shutil.copytree(KIT / "scenarios", self.root / "scenarios")
+        self.run_path = self.root / "runs" / self.example.name
+        shutil.copytree(self.example, self.run_path)
 
         self._prev_home = os.environ.get("PQA_HOME")
         os.environ["PQA_HOME"] = str(self.root)
@@ -65,6 +69,16 @@ class KitTestCase(unittest.TestCase):
     def write(self, name: str, data) -> None:
         (self.run_path / name).write_text(json.dumps(data, indent=2) + "\n")
 
+    def session(self) -> list[dict]:
+        path = self.run_path / "session.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+    def write_session(self, records: list[dict], redigest: bool = True) -> None:
+        path = self.run_path / "session.jsonl"
+        path.write_text("".join(json.dumps(r, separators=(",", ":")) + "\n" for r in records))
+        if redigest:
+            self.redigest()
+
     def reseal(self) -> None:
         """Re-issue run.lock after a legitimate manifest edit."""
         from pqa.core import digest_file, iso_now
@@ -78,8 +92,14 @@ class KitTestCase(unittest.TestCase):
         })
 
     def redigest(self) -> None:
-        """Recompute the digest chain after legitimate artifact edits."""
+        """Recompute the digest chain after legitimate artifact edits.
+
+        The session ledger is the first link: a test that edits the log on
+        purpose re-issues it here, as a live hook would have recorded the log.
+        """
         from pqa.core import digest_file
+
+        self.reledger()
 
         candidates = self.read("findings.candidates.json")
         candidates["session_digest"] = digest_file(self.run_path / "session.jsonl")
@@ -90,6 +110,21 @@ class KitTestCase(unittest.TestCase):
             self.run_path / "findings.candidates.json"
         )
         self.write("findings.reviewed.json", reviewed)
+
+    def reledger(self) -> None:
+        """Rewrite session.ledger.jsonl to match the log as it now stands."""
+        import json as _json
+
+        from pqa import ledger
+
+        path = self.run_path / "session.ledger.jsonl"
+        if not path.exists():
+            return
+        lines = ledger.session_lines(self.run_path / "session.jsonl")
+        path.write_text("".join(
+            _json.dumps({"lines": n, "digest": ledger.prefix_digest(lines, n)}) + "\n"
+            for n in range(1, len(lines) + 1)
+        ))
 
     # -- assertions -------------------------------------------------------
 

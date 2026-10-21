@@ -98,6 +98,8 @@ def verify(ledger: Path, session: Path, report: Report, where: str = "session.js
                 "the log only grows; a shrinking count means lines were removed",
             )
         previous = max(previous, entry.lines)
+        # Every later prefix contains the broken one, so the first failure is
+        # the whole story; reporting each entry after it would only be noise.
         if entry.lines > len(lines):
             report.error(
                 where,
@@ -106,7 +108,7 @@ def verify(ledger: Path, session: Path, report: Report, where: str = "session.js
                 "the session log is append-only. Correct a mistaken step by "
                 "appending, never by editing or removing what is already there",
             )
-            continue
+            break
         if prefix_digest(lines, entry.lines) != entry.digest:
             report.error(
                 where,
@@ -115,6 +117,6 @@ def verify(ledger: Path, session: Path, report: Report, where: str = "session.js
                 "including to remove a forbidden word -- rewrites the evidence "
                 "every later stage depends on",
             )
-            continue
+            break
         verified = max(verified, entry.lines)
     return verified

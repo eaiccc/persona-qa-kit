@@ -10,7 +10,7 @@ from .jsonschema_lite import SchemaError, Validator, load_schema
 
 __all__ = [
     "VERDICT_KEYS", "check_instance", "check_session", "check_persona_file",
-    "check_run_dir", "self_check",
+    "check_scenario_file", "check_run_dir", "self_check",
 ]
 
 # Keys that would let `user-agent` grade its own session. The schema already
@@ -37,7 +37,7 @@ _VERDICT_HINT = (
 )
 
 # Session records written by the drift hook rather than by user-agent.
-HOOK_KINDS = ("persona_injection", "drift_breach")
+HOOK_KINDS = ("persona_injection", "drift_breach", "perturbation")
 
 
 def _cache() -> dict[str, Validator]:
@@ -123,8 +123,9 @@ def _check_session_shape(records: list[dict[str, Any]], name: str) -> Report:
 
     report.checks_run += 3
 
-    observations = [r for r in records if r.get("kind") == "observation"]
-    steps = [r.get("step") for r in observations if isinstance(r.get("step"), int)]
+    from .scenarios import step_numbers
+
+    steps = step_numbers(records)
     if steps != sorted(steps):
         report.error(name, "observation steps are not monotonically increasing")
     if len(set(steps)) != len(steps):
@@ -151,6 +152,117 @@ def _check_session_shape(records: list[dict[str, Any]], name: str) -> Report:
     elif len(terminals) > 1:
         report.error(name, f"session log has {len(terminals)} 'terminated' records, expected 1")
 
+    report.extend(_check_two_phase(records, name))
+    return report
+
+
+def _check_two_phase(records: list[dict[str, Any]], name: str) -> Report:
+    """Ordering for intent/outcome steps, checked only when they are used.
+
+    The point of an `intent` record is that the expectation exists before the
+    result does. Its schema cannot see the order records were written in; this
+    can. An outcome without a prior intent, an intent written after its outcome,
+    or an intent that two steps' records were interleaved around are all ways
+    the expectation could have been written to fit the result.
+    """
+    report = Report()
+    if not any(r.get("kind") in ("intent", "outcome") for r in records):
+        return report
+
+    report.checks_run += 4
+    step_kinds = ("observation", "intent", "outcome")
+    open_intent: dict[str, Any] | None = None
+    intents_seen: set[int] = set()
+    observation_steps = {r.get("step") for r in records if r.get("kind") == "observation"}
+
+    for i, record in enumerate(records):
+        kind = record.get("kind")
+        if kind not in step_kinds:
+            continue
+        step = record.get("step")
+        where = f"{name}[step {step}]"
+
+        if kind == "intent":
+            if open_intent is not None:
+                report.error(
+                    f"{name}[step {open_intent.get('step')}]",
+                    f"intent has no outcome before the next step's records begin "
+                    f"(step {step})",
+                    "write the outcome of one step before starting the next",
+                )
+            if step in intents_seen:
+                report.error(
+                    where,
+                    "more than one intent for this step",
+                    "an expectation is committed once. Writing a second one is "
+                    "revising it, which is what the intent record exists to stop",
+                )
+            if step in observation_steps:
+                report.error(
+                    where,
+                    "step is recorded both as an observation and as intent/outcome",
+                    "use one form per step",
+                )
+            intents_seen.add(step)
+            open_intent = record
+            continue
+
+        if kind == "outcome":
+            if "expected" in record:
+                report.error(
+                    where,
+                    "outcome carries `expected`",
+                    "the expectation was committed in this step's intent record "
+                    "and cannot be restated once the result is known",
+                )
+            if open_intent is None or open_intent.get("step") != step:
+                if step in intents_seen:
+                    report.error(
+                        where,
+                        "outcome is not directly preceded by its own intent",
+                        "another step's records were written between them",
+                    )
+                else:
+                    report.error(
+                        where,
+                        "outcome has no intent written before it",
+                        "the intent (with `expected`) must be on the log before "
+                        "the outcome -- an expectation written afterwards is a "
+                        "description of the result",
+                    )
+                open_intent = None
+                continue
+            if str(open_intent.get("ts", "")) > str(record.get("ts", "")):
+                report.error(
+                    where,
+                    f"intent is timestamped after its outcome "
+                    f"({open_intent.get('ts')} > {record.get('ts')})",
+                )
+            planned = (open_intent.get("action") or {}).get("class")
+            actual = (record.get("action") or {}).get("class")
+            if planned and actual and planned != actual:
+                report.warn(
+                    where,
+                    f"intent planned a {planned!r} action but the outcome records {actual!r}",
+                    "the expectation was about a different action than the one "
+                    "taken, so it says nothing about this step's result",
+                )
+            open_intent = None
+            continue
+
+        # an observation in the middle of an open intent
+        if open_intent is not None:
+            report.error(
+                f"{name}[step {open_intent.get('step')}]",
+                f"intent has no outcome before the next step's records begin (step {step})",
+            )
+            open_intent = None
+
+    if open_intent is not None and records[-1].get("kind") != "terminated":
+        # A trailing intent followed by termination is allowed: the persona
+        # decided what to do next and then gave up instead. Without the
+        # termination it is a step that was started and never recorded.
+        report.error(f"{name}[step {open_intent.get('step')}]", "intent has no outcome")
     return report
 
 
@@ -177,6 +289,30 @@ def check_persona_file(path: str | Path) -> Report:
             label,
             f"id {data.get('id')!r} does not match the filename stem {Path(path).stem!r}",
         )
+    return report
+
+
+def check_scenario_file(path: str | Path) -> Report:
+    from . import scenarios, yamlite
+
+    report = Report()
+    report.checks_run += 2
+    label = Path(path).name
+    try:
+        data = yamlite.load(path)
+    except yamlite.YamlError as exc:
+        report.error(label, str(exc))
+        return report
+
+    report.extend(check_instance(data, "scenario.schema.json", label))
+    if isinstance(data, dict):
+        for problem in scenarios.semantic_problems(data):
+            report.error(label, problem)
+        if data.get("id") != Path(path).stem:
+            report.error(
+                label,
+                f"id {data.get('id')!r} does not match the filename stem {Path(path).stem!r}",
+            )
     return report
 
 
@@ -259,5 +395,8 @@ def self_check() -> Report:
 
     for path in sorted((kit_root() / "personas").glob("*.yaml")):
         report.extend(check_persona_file(path))
+
+    for path in sorted((kit_root() / "scenarios").glob("*.yaml")):
+        report.extend(check_scenario_file(path))
 
     return report

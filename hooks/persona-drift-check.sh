@@ -21,11 +21,17 @@
 # The second only catches lexical drift. An agent can avoid every forbidden term
 # and still troubleshoot with a patience the persona does not have; that is what
 # persona-evaluator is for, and it is a softer guard.
+#
+# The same tick delivers a bound scenario's perturbations: once the step a
+# perturbation was sealed to is on the log, it appends a `perturbation` record
+# and hands the instruction back in the same JSON envelope. The gate checks
+# every due perturbation was recorded on time (docs/writing-scenarios.md).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# stdout carries the JSON envelope that re-injects the persona on cadence steps;
+# stdout carries the JSON envelope that re-injects the persona on cadence steps
+# and delivers any scenario perturbation that has fallen due;
 # stderr carries the explanation when a breach exits 2. Both pass straight
 # through. The decisions live in tools/pqa/hook.py, where they are tested.
 "$ROOT/bin/pqa" hook drift

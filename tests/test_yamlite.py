@@ -23,9 +23,10 @@ except ImportError:  # pragma: no cover
 
 class TestAgreementWithPyYAML(unittest.TestCase):
     @unittest.skipIf(pyyaml is None, "PyYAML not installed")
-    def test_every_persona_card_parses_identically(self):
+    def test_every_persona_card_and_scenario_parses_identically(self):
         cards = sorted((KIT / "personas").glob("*.yaml"))
         self.assertTrue(cards, "no persona cards to compare")
+        cards += sorted((KIT / "scenarios").glob("*.yaml"))
         for card in cards:
             with self.subTest(card=card.name):
                 text = card.read_text(encoding="utf-8")

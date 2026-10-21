@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import drift, fingerprint, ledger, personas, validate
+from . import drift, fingerprint, ledger, personas, scenarios, validate
 from .core import PqaError, Report, RunDir, digest_file, read_json
 
 __all__ = ["run_gate", "STAGES"]
@@ -42,7 +42,12 @@ def run_gate(run: RunDir, stage: str = "final") -> Report:
         return report
 
     card = _check_persona(run, manifest, report)
+    _check_scenario(manifest, report)
     records = _check_session(run, manifest, report)
+
+    if records is not None:
+        _check_perturbations(manifest, records, report)
+        _check_scope(manifest, records, report)
 
     breach_step = None
     if records is not None and card is not None:
@@ -162,6 +167,66 @@ def _check_persona(
     return card
 
 
+def _check_scenario(manifest: dict[str, Any], report: Report) -> scenarios.Scenario | None:
+    """The scenario is bound the same way the persona card is.
+
+    A scenario edited after sealing changes the task, the completion test, or
+    the interruptions -- the run then describes a scenario that no longer
+    exists. The sealed copy in run.json must also agree with the file, so a
+    hand-written manifest cannot carry the right digest with easier criteria.
+    """
+    declared = manifest.get("scenario")
+    goal = manifest["stopping_conditions"]["goal_satisfaction"]
+    if declared is None:
+        report.checks_run += 1
+        if goal.get("criteria_source") == "scenario":
+            report.error(
+                "scenario",
+                "success criteria claim to come from a scenario, but run.json binds none",
+            )
+        return None
+
+    report.checks_run += 4
+    try:
+        scenario = scenarios.load(declared.get("id", ""))
+    except PqaError as exc:
+        report.error("scenario", str(exc))
+        return None
+
+    if scenario.digest != declared.get("scenario_digest"):
+        report.error(
+            "scenario",
+            f"scenario {scenario.id} has changed since the run was sealed",
+            "the session was run against a different task, completion test or "
+            "set of perturbations than the file now contains. Bump the "
+            "scenario's version and start a new run rather than editing this one",
+        )
+    if scenario.version != declared.get("version"):
+        report.error(
+            "scenario",
+            f"scenario version is {scenario.version}, run.json declares "
+            f"{declared.get('version')}",
+        )
+
+    sealed = scenario.manifest_block()
+    for key in ("task", "entry", "perturbations"):
+        if declared.get(key) != sealed[key]:
+            report.error(
+                "scenario",
+                f"run.json scenario.{key} does not match scenarios/{scenario.id}.yaml",
+                "the manifest's copy is what the hooks act on, so it must be the "
+                "scenario's text exactly. Regenerate it with `pqa new-run`",
+            )
+    if goal.get("success_criteria") != scenario.success_criteria:
+        report.error(
+            "scenario",
+            "success_criteria in run.json are not the scenario's",
+            "with a scenario bound, the completion test is the scenario's. The "
+            "persona card's criteria are only the fallback for runs without one",
+        )
+    return scenario
+
+
 # --------------------------------------------------------------------------
 # stage 3: the session log
 # --------------------------------------------------------------------------
@@ -193,7 +258,7 @@ def _check_session(
 
     stopping = manifest["stopping_conditions"]
     budget = stopping["step_budget"]
-    observations = [r for r in records if r.get("kind") == "observation"]
+    observations = scenarios.step_numbers(records)
     report.checks_run += 2
 
     if len(observations) > budget:
@@ -230,6 +295,128 @@ def _terminal(records: list[dict[str, Any]]) -> dict[str, Any] | None:
             continue
         return record if record.get("kind") == "terminated" else None
     return None
+
+
+def _check_perturbations(
+    manifest: dict[str, Any], records: list[dict[str, Any]], report: Report
+) -> None:
+    """Every sealed perturbation that fell due was applied, on time, once.
+
+    "Due" means the session went on past its step: if the persona recorded step
+    at_step + 1, they did so under the perturbation or not at all, and only a
+    record written by the hook says which. A perturbation silently skipped turns
+    an interrupted-flow run into an uninterrupted one that still claims the
+    scenario's name.
+    """
+    declared = manifest.get("scenario")
+    applied = [(i, r) for i, r in enumerate(records) if r.get("kind") == "perturbation"]
+    report.checks_run += 1
+
+    if declared is None:
+        if applied:
+            report.error(
+                "session.jsonl",
+                f"{len(applied)} perturbation record(s) in a run with no scenario",
+                "perturbations come from a sealed scenario; there is nothing here "
+                "they could have been injected from",
+            )
+        return
+
+    sealed = declared.get("perturbations", [])
+    digest = declared.get("scenario_digest")
+    steps = scenarios.step_numbers(records)
+    last = max(steps) if steps else 0
+    report.checks_run += 2 * len(sealed) + len(applied)
+
+    by_index: dict[int, tuple[int, dict[str, Any]]] = {}
+    for position, record in applied:
+        index = record.get("index")
+        where = f"session.jsonl[perturbation {index}]"
+        if not isinstance(index, int) or not 0 <= index < len(sealed):
+            report.error(
+                where,
+                f"names perturbation {index}, but the scenario seals {len(sealed)}",
+                "a perturbation record that matches nothing sealed was not "
+                "written by the hook",
+            )
+            continue
+        if index in by_index:
+            report.error(where, "recorded more than once")
+            continue
+        by_index[index] = (position, record)
+
+        want = sealed[index]
+        if record.get("do") != want["do"] or record.get("at_step") != want["at_step"]:
+            report.error(
+                where,
+                f"records {record.get('do')!r} at step {record.get('at_step')}, but "
+                f"the sealed perturbation is {want['do']!r} at step {want['at_step']}",
+            )
+        if record.get("scenario_digest") != digest or record.get("scenario_id") != declared.get("id"):
+            report.error(where, "scenario id or digest does not match run.json")
+
+    for index, want in enumerate(sealed):
+        at = want["at_step"]
+        label = f"perturbation {index} ({want['do']} after step {at})"
+        if index not in by_index:
+            if last > at:
+                report.error(
+                    "session.jsonl",
+                    f"{label} was due but never applied",
+                    "the session continued past the step it was sealed for. "
+                    "Check that persona-drift-check is wired up -- a hook that "
+                    "stopped firing looks exactly like a scenario that went smoothly",
+                )
+            continue
+
+        position, record = by_index[index]
+        before = [
+            r for r in records[:position]
+            if r.get("kind") in scenarios.STEP_KINDS and r.get("step") == at
+        ]
+        later = [
+            r for r in records[:position]
+            if r.get("kind") in ("observation", "intent", "outcome")
+            and isinstance(r.get("step"), int) and r["step"] > at
+        ]
+        if record.get("step") != at or later:
+            report.error(
+                "session.jsonl",
+                f"{label} was applied late (after step "
+                f"{max([r['step'] for r in later] + [record.get('step') or 0])})",
+                "the steps in between ran without it, so the session did not "
+                "test what the scenario sealed",
+            )
+        elif not before:
+            report.error(
+                "session.jsonl",
+                f"{label} was applied before step {at} was recorded",
+            )
+
+
+def _check_scope(
+    manifest: dict[str, Any], records: list[dict[str, Any]], report: Report
+) -> None:
+    prefixes = manifest["stopping_conditions"]["scope_bounds"].get("in_scope_surfaces")
+    if not prefixes:
+        return
+    report.checks_run += 1
+    outside = sorted({
+        (r["step"], r["action"]["surface"])
+        for r in records
+        if r.get("kind") in scenarios.STEP_KINDS
+        and isinstance(r.get("action"), dict)
+        and r["action"].get("surface")
+        and not scenarios.in_scope(r["action"]["surface"], prefixes)
+    })
+    if outside:
+        shown = ", ".join(f"step {s} on {surface}" for s, surface in outside[:5])
+        report.warn(
+            "scope",
+            f"{len(outside)} step(s) outside the scenario's in_scope_surfaces: {shown}",
+            "findings there are not what this scenario covers. Either the "
+            "persona wandered, or the scenario's surfaces are too narrow",
+        )
 
 
 # --------------------------------------------------------------------------
@@ -269,7 +456,8 @@ def _check_drift(
     if first is not None:
         later = sorted(
             r["step"] for r in records
-            if r.get("kind") == "observation" and r["step"] > first
+            if r.get("kind") in ("observation", "intent", "outcome")
+            and isinstance(r.get("step"), int) and r["step"] > first
         )
         handled = drift_terminated and not later
 
@@ -309,8 +497,7 @@ def _check_drift(
                 "it, nothing caught this while the session was running",
             )
 
-    steps = [r["step"] for r in records if r.get("kind") == "observation"]
-    last = max(steps) if steps else 0
+    last = scenarios.last_step(records)
     gaps = drift.cadence_gaps(records, every, last)
     if gaps:
         report.warn(
@@ -415,7 +602,7 @@ def _check_findings(
     report: Report,
 ) -> None:
     seen_ids: set[str] = set()
-    steps = {r["step"] for r in (records or []) if r.get("kind") == "observation"}
+    steps = set(scenarios.step_numbers(records or []))
 
     for finding in findings:
         report.checks_run += 3

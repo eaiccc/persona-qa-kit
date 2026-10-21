@@ -27,6 +27,42 @@
       }
     },
 
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "scenario_digest", "task", "entry", "perturbations"],
+      "description": "Optional. When present, the run is persona x scenario: the task, entry point, success criteria, scope and perturbations come from scenarios/<id>.yaml rather than being hard-wired into the persona card. Copied in at `pqa new-run` time so the sealed manifest is self-contained, and verified against the scenario file by the review gate.",
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/scenario_id" },
+        "version": { "$ref": "common.schema.json#/$defs/semver" },
+        "scenario_digest": {
+          "$ref": "common.schema.json#/$defs/digest",
+          "description": "Digest of the scenario file as loaded. A scenario edited after sealing invalidates the run, the same way an edited persona card does."
+        },
+        "task": { "type": "string", "minLength": 10, "maxLength": 400 },
+        "entry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["surface"],
+          "properties": {
+            "surface": { "$ref": "common.schema.json#/$defs/surface" },
+            "state": { "type": "string", "maxLength": 300 }
+          }
+        },
+        "preconditions": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "type": "string", "minLength": 5, "maxLength": 200 }
+        },
+        "perturbations": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "$ref": "common.schema.json#/$defs/perturbation" },
+          "description": "Sealed copy. persona-drift-check reads these from run.json, never from the scenario file, so what is injected is what was sealed."
+        }
+      }
+    },
+
     "target": {
       "type": "object",
       "additionalProperties": false,
@@ -66,7 +102,12 @@
               "minItems": 1,
               "maxItems": 8,
               "items": { "type": "string", "minLength": 5, "maxLength": 200 },
-              "description": "Copied from the persona card at seal time so the run manifest is self-contained."
+              "description": "Copied at seal time so the run manifest is self-contained: from the scenario when the run has one, otherwise from the persona card."
+            },
+            "criteria_source": {
+              "type": "string",
+              "enum": ["scenario", "persona"],
+              "description": "Where success_criteria came from. The gate checks it against the bound scenario or card."
             },
             "allow_unreachable": {
               "type": "boolean",
@@ -100,6 +141,14 @@
               "minItems": 1,
               "maxItems": 15,
               "items": { "type": "string", "minLength": 3, "maxLength": 200 }
+            },
+            "in_scope_surfaces": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "uniqueItems": true,
+              "items": { "$ref": "common.schema.json#/$defs/surface" },
+              "description": "From the scenario. Surface prefixes the session is expected to stay within; the gate warns on observations outside them."
             }
           }
         }

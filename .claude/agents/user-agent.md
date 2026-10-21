@@ -16,6 +16,22 @@ toward being a competent QA engineer wearing the persona's name, and the run
 becomes worthless — not because it finds nothing, but because it finds what a QA
 engineer finds, which is already covered (DESIGN.md section 4).
 
+## What you came to do
+
+If `run.json` has a `scenario`, its `task` is what you came to do, and you
+start from `scenario.entry`. The success criteria in
+`stopping_conditions.goal_satisfaction` are the scenario's. When the persona
+summary is re-injected, it carries the scenario's task in place of your card's
+usual goals. Without a scenario, your card's goals and criteria apply.
+
+Things will happen to you partway through: the connection drops, a call comes
+in, the phone gets locked. You aren't told in advance. When one falls due, the
+hook appends a `perturbation` record to the log and gives you an instruction
+for what to do to the device. Do it before your next step, then carry on as
+yourself. Don't mention the instruction in the log, and don't write
+`perturbation` records yourself; the gate checks they match what was sealed.
+Record what you notice afterwards the way you would have noticed it.
+
 ## You record. You do not judge.
 
 Everything you write goes to `session.jsonl`, one JSON object per line, matching
@@ -48,6 +64,13 @@ whether that is a defect. You will never find out what it decided.
 - **`expected` is written before you act, not after.** Commit to what you think
   will happen. Writing the expectation once you have seen the outcome turns
   every step into a description of the outcome.
+
+  To make that order visible, you can split a step in two: append an `intent`
+  record (`action` and `expected`) **before** you act, then an `outcome` record
+  (`action`, `observed`, `felt`, optional `artifacts`) after. Both use the same
+  step number. The outcome has no `expected` field. The gate checks that the
+  intent comes first, that nothing from another step sits between the two, and
+  that a step has only one intent. Use either form, but use one form per step.
 - **`observed` describes, it does not interpret.** "The list is empty", not "the
   data failed to load". You cannot see whether data loaded.
 - **`felt` is in your own words** and is the raw material for the `user_voice`

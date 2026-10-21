@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scenario.schema.json",
+  "title": "Scenario",
+  "description": "What the persona came to do on this run. A scenario lives in scenarios/*.yaml and is versioned independently of persona cards, so a run is persona x scenario: the same person can be pointed at a different task without editing (and re-versioning) the card, and the same task can be given to several people without copying it into each card.\n\nThe persona says who; the scenario says what, where it starts, what counts as done, and what will happen to the session on the way. Its digest is bound into run.json at `pqa new-run` time and verified by the review gate, exactly like the persona card's.",
+
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "version", "title", "task", "entry", "success_criteria", "in_scope_surfaces"],
+
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/scenario_id" },
+    "version": { "$ref": "common.schema.json#/$defs/semver" },
+
+    "title": { "type": "string", "minLength": 3, "maxLength": 80 },
+
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "The app this scenario is written for, matching run.json target.name. Omit for scenarios that apply to any app. Used by `pqa report` to decide which persona x scenario cells count as coverage gaps."
+    },
+
+    "task": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 400,
+      "description": "What the persona is trying to get done, in plain words. Re-injected alongside the persona summary, so write it the way the persona would say it, and keep it free of the persona's never_uses terms -- `pqa new-run` warns when it is not."
+    },
+
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface"],
+      "description": "Where the session starts.",
+      "properties": {
+        "surface": { "$ref": "common.schema.json#/$defs/surface" },
+        "state": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "What is on screen at step 0, e.g. 'the basket, with one item in it'."
+        }
+      }
+    },
+
+    "preconditions": {
+      "type": "array",
+      "maxItems": 10,
+      "items": { "type": "string", "minLength": 5, "maxLength": 200 },
+      "description": "State the operator establishes before step 1 (seed data, account, network). Not checked mechanically -- they describe the fixture, so that two runs of the same scenario start from the same place."
+    },
+
+    "success_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": { "type": "string", "minLength": 5, "maxLength": 200 },
+      "description": "The completion test for the session. Must be externally observable -- something on screen or in the app's state, not 'the user is satisfied'. When a run has a scenario, these replace the persona card's success_criteria in run.json; the card's become the fallback for runs without one."
+    },
+
+    "in_scope_surfaces": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/surface" },
+      "description": "Surface prefixes this scenario covers. 'checkout' covers 'checkout/payment'. The gate warns when an observation lands outside them; the persona's out_of_scope list still applies on top."
+    },
+
+    "perturbations": {
+      "type": "array",
+      "maxItems": 10,
+      "items": { "$ref": "common.schema.json#/$defs/perturbation" },
+      "description": "Interruptions decided in advance, in strictly increasing at_step order. Deciding them before the run is the same argument as the step budget (DESIGN.md section 3): an agent that chooses when to be interrupted chooses the moment least likely to hurt."
+    },
+
+    "notes": { "type": "string", "maxLength": 1000 }
+  }
+}

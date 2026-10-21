@@ -1,0 +1,45 @@
+# Capture something on the move, with the signal dropping out halfway through.
+# Pair it with any persona: the scenario says what happens, the card says who it
+# happens to. Run it with two personas on opposite dials and compare.
+id: note-capture-offline
+version: 1.0.0
+title: Write a note while the signal drops out
+target: notes-app
+
+task: >-
+  Write down something you need to remember, while the phone keeps losing its
+  signal, and make sure it is still there afterwards.
+
+entry:
+  surface: notes/list
+  state: the list of notes, with one existing note called Shopping list
+
+preconditions:
+  - The app is installed, signed in, and has one note called Shopping list
+  - The device starts with a working connection
+
+# Externally observable. Each one can be checked by looking at the screen (or
+# listening to it), without knowing anything about how the app works inside.
+success_criteria:
+  - The new note appears in the list after the connection comes back
+  - The new note is still in the list after the app is closed and reopened
+  - The app showed or read out whether the note had been saved
+
+in_scope_surfaces:
+  - notes/list
+  - notes/editor
+
+perturbations:
+  - at_step: 2
+    do: offline
+    for: 3 steps
+    note: the train goes into a tunnel
+  - at_step: 6
+    do: background
+    for: 30s
+    note: a phone call comes in and takes over the screen
+
+notes: >-
+  The offline window opens as soon as the editor does, so the first save attempt
+  happens without a connection. The backgrounding comes after the connection is
+  back, which separates "never saved" from "saved but lost on the way back".

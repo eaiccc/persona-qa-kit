@@ -20,7 +20,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import drift, fingerprint, gate, hook, personas, signals, validate
+from . import drift, fingerprint, gate, hook, personas, report, scenarios, signals, validate
 from .core import (
     PqaError, Report, RunDir, colorize, digest_file, iso_now, kit_root, read_jsonl,
     set_active,
@@ -37,6 +37,7 @@ EXIT_VIOLATION = 2
 
 def cmd_new_run(args: argparse.Namespace) -> int:
     card = personas.load(args.persona)
+    scenario = scenarios.load(args.scenario) if args.scenario else None
 
     slug = args.run_id or _slug(args.target)
     run_id = slug if re.match(r"^\d{4}-\d{2}-\d{2}-", slug) else f"{iso_now()[:10]}-{slug}"
@@ -48,16 +49,29 @@ def cmd_new_run(args: argparse.Namespace) -> int:
         raise PqaError(f"{out / 'run.json'} already exists; runs are not overwritten")
     out.mkdir(parents=True, exist_ok=True)
 
+    if scenario is not None:
+        _check_scenario_fit(scenario, card, args)
+
     manifest = {
         "run_id": run_id,
         "created_at": iso_now(),
         "created_by": "qa-orchestrator",
         "persona": {"id": card.id, "version": card.version, "card_digest": card.digest},
+    }
+    if scenario is not None:
+        # Beside `persona`: together they say who, and doing what.
+        manifest["scenario"] = scenario.manifest_block()
+    manifest.update({
         "target": {"name": args.target, "build": args.build},
         "stopping_conditions": {
             "step_budget": args.budget,
             "goal_satisfaction": {
-                "success_criteria": card.success_criteria,
+                # The scenario's completion test when there is one; the card's
+                # is the fallback for runs that only say who, not what.
+                "success_criteria": (
+                    scenario.success_criteria if scenario else card.success_criteria
+                ),
+                "criteria_source": "scenario" if scenario else "persona",
                 "allow_unreachable": True,
             },
             "blocked_state": {"no_state_change_steps": args.blocked_after},
@@ -67,7 +81,11 @@ def cmd_new_run(args: argparse.Namespace) -> int:
             "reinject_every_steps": args.reinject_every,
             "enforce_never_uses": not args.lenient_vocabulary,
         },
-    }
+    })
+    if scenario is not None:
+        manifest["stopping_conditions"]["scope_bounds"]["in_scope_surfaces"] = (
+            scenario.in_scope_surfaces
+        )
     if args.platform:
         manifest["target"]["platform"] = args.platform
     if args.entrypoint:
@@ -82,6 +100,39 @@ def cmd_new_run(args: argparse.Namespace) -> int:
     print(f"wrote {out / 'run.json'}")
     print(f"seal it before the session starts:\n\n    pqa seal {out}\n")
     return EXIT_OK
+
+
+def _check_scenario_fit(
+    scenario: scenarios.Scenario, card: personas.PersonaCard, args: argparse.Namespace
+) -> None:
+    """Refuse a scenario that cannot run within the budget; warn on the rest."""
+    late = [p for p in scenario.perturbations if p["at_step"] >= args.budget]
+    if late:
+        raise PqaError(
+            f"scenario {scenario.id} seals a perturbation after step "
+            f"{late[0]['at_step']}, which a {args.budget}-step budget can never "
+            "reach. Raise --budget or use a different scenario"
+        )
+
+    target = scenario.data.get("target")
+    if target and target != args.target:
+        print(
+            f"pqa: warning: scenario {scenario.id} is written for {target!r}, "
+            f"this run targets {args.target!r}",
+            file=sys.stderr,
+        )
+
+    # The task is re-injected into the session alongside the persona summary. A
+    # forbidden term in it primes exactly the drift the tripwire then catches.
+    texts = [{"step": 0, "expected": scenario.data["task"]}] + [
+        {"step": 0, "observed": c} for c in scenario.success_criteria
+    ]
+    for hit in drift.scan(texts, card.never_uses):
+        print(
+            f"pqa: warning: scenario {scenario.id} uses {hit.term!r}, which "
+            f"{card.id} never says ({hit.quote!r})",
+            file=sys.stderr,
+        )
 
 
 def cmd_seal(args: argparse.Namespace) -> int:
@@ -115,11 +166,17 @@ def cmd_seal(args: argparse.Namespace) -> int:
         "run_digest": digest_file(run.run_json),
         "persona_card_digest": manifest["persona"]["card_digest"],
     }
+    if manifest.get("scenario"):
+        lock["scenario_digest"] = manifest["scenario"]["scenario_digest"]
     run.lock.write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
     displaced = set_active(run.path)
     print(f"sealed {run.run_json.name} -> {run.lock.name}")
     print(f"  step budget: {manifest['stopping_conditions']['step_budget']}")
     print(f"  persona:     {manifest['persona']['id']} v{manifest['persona']['version']}")
+    if manifest.get("scenario"):
+        sc = manifest["scenario"]
+        print(f"  scenario:    {sc['id']} v{sc['version']} "
+              f"({len(sc['perturbations'])} perturbation(s))")
     print("  active:      the hooks now guard this run")
     if displaced:
         print(
@@ -174,9 +231,8 @@ def cmd_drift(args: argparse.Namespace) -> int:
     records = [record for _, record in read_jsonl(run.session)[0] if isinstance(record, dict)]
     violations = drift.scan(records, card.never_uses)
 
-    steps = [r["step"] for r in records if r.get("kind") == "observation"]
     every = manifest.get("drift_control", {}).get("reinject_every_steps", 8)
-    gaps = drift.cadence_gaps(records, every, max(steps) if steps else 0)
+    gaps = drift.cadence_gaps(records, every, scenarios.last_step(records))
     injections = drift.injection_steps(records)
 
     print(f"  persona:     {card.id} v{card.version}")
@@ -264,8 +320,52 @@ def cmd_personas(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_scenarios(args: argparse.Namespace) -> int:
+    ids = scenarios.list_ids()
+    if not ids:
+        print("  no scenarios in scenarios/")
+        return EXIT_OK
+
+    for scenario_id in ids:
+        try:
+            scenario = scenarios.load(scenario_id)
+        except PqaError as exc:
+            print(f"  {colorize('INVALID', 'red', sys.stdout.isatty())} {scenario_id}: {exc}")
+            continue
+        perturbs = ", ".join(
+            f"{p['do']}@{p['at_step']}" for p in scenario.perturbations
+        ) or "none"
+        print(
+            f"  {scenario.id:<26} v{scenario.version:<8} "
+            f"target={scenario.data.get('target', 'any'):<12} "
+            f"criteria={len(scenario.success_criteria)} perturbations={perturbs}"
+        )
+    return EXIT_OK
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    data = report.build(args.runs_dir, include_ungated=args.include_ungated)
+    text = report.render_json(data) if args.format == "json" else report.render_markdown(data)
+    if args.output:
+        Path(args.output).write_text(text, encoding="utf-8")
+        print(f"wrote {args.output}")
+    else:
+        print(text, end="")
+    if args.json:
+        Path(args.json).write_text(report.render_json(data), encoding="utf-8")
+        print(f"wrote {args.json}", file=sys.stderr)
+    return EXIT_OK
+
+
+def cmd_check_improvements(args: argparse.Namespace) -> int:
+    result = report.check_improvements(args.file, args.runs_dir)
+    print(result.render(f"improvements: {Path(args.file).name}"))
+    return EXIT_OK if result.ok else EXIT_VIOLATION
+
+
 def cmd_inject(args: argparse.Namespace) -> int:
     card = personas.load(args.persona)
+    task = scenarios.load(args.scenario).data["task"] if args.scenario else None
     if args.record:
         print(json.dumps({
             "kind": "persona_injection",
@@ -275,7 +375,7 @@ def cmd_inject(args: argparse.Namespace) -> int:
             "card_digest": card.digest,
         }))
         return EXIT_OK
-    print(personas.summary_block(card))
+    print(personas.summary_block(card, task))
     return EXIT_OK
 
 
@@ -301,6 +401,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("new-run", help="write a run manifest (qa-orchestrator's mechanical half)")
     p.add_argument("--persona", required=True, help="persona id, e.g. time-starved-parent")
+    p.add_argument("--scenario",
+                   help="scenario id, e.g. checkout-interrupted. Supplies the task, "
+                        "success criteria, scope and perturbations")
     p.add_argument("--target", required=True, help="app name")
     p.add_argument("--build", required=True, help="commit sha, version, or build number")
     p.add_argument("--budget", type=int, default=40, help="step budget (default: 40)")
@@ -351,8 +454,27 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("personas", help="list and validate persona cards")
     p.set_defaults(func=cmd_personas)
 
+    p = sub.add_parser("scenarios", help="list and validate scenarios")
+    p.set_defaults(func=cmd_scenarios)
+
+    p = sub.add_parser("report", help="cross-run findings, coverage and improvement report")
+    p.add_argument("runs_dir", nargs="?", default=str(kit_root() / "runs"))
+    p.add_argument("--format", choices=("markdown", "json"), default="markdown")
+    p.add_argument("-o", "--output", help="write the report here instead of stdout")
+    p.add_argument("--json", help="also write the JSON form to this path")
+    p.add_argument("--include-ungated", action="store_true",
+                   help="aggregate runs that fail the review gate (marked as such)")
+    p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("check-improvements",
+                       help="verify a feedback-synthesizer file against the reviewed findings")
+    p.add_argument("file")
+    p.add_argument("runs_dir", nargs="?", default=str(kit_root() / "runs"))
+    p.set_defaults(func=cmd_check_improvements)
+
     p = sub.add_parser("inject", help="print the persona re-injection block")
     p.add_argument("--persona", required=True)
+    p.add_argument("--scenario", help="replace the card's goals with this scenario's task")
     p.add_argument("--record", action="store_true",
                    help="emit a persona_injection JSONL record instead of the prose block")
     p.add_argument("--step", type=int, default=0)

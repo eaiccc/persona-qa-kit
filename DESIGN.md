@@ -208,6 +208,66 @@ against that, and it is a soft one.
 
 ---
 
+## Scenarios: separating who from what
+
+This is not a fifth failure mode. It is a structural fix that the four
+mitigations above turned out to need.
+
+**Symptom.** A persona card hard-wires a generic task: "the task I came to do is
+saved and visible when I reopen the app". To point that person at a specific
+flow (checkout, offline capture), someone has to edit the card. That changes the
+card's digest and version, so every earlier run of the persona stops being
+comparable with every later one. Failure mode 2 comes back through the side
+door. And because the task was generic, the success criteria were too, which
+weakens failure mode 3's goal-satisfaction stopping condition until it barely
+tests anything.
+
+**Mitigation.** A run is persona × scenario. `scenarios/*.yaml` carries the
+task, entry point, preconditions, externally observable success criteria,
+in-scope surfaces, and **perturbations**: interruptions sealed to a step number
+before the run starts. `pqa new-run --scenario` copies all of it into `run.json`
+next to the card's digest. The scenario's criteria replace the card's, and the
+card's become the fallback for runs without a scenario. The gate verifies the
+scenario's digest the same way it verifies the card's, and checks that the
+sealed copy matches the file.
+
+Perturbations are failure mode 3's argument applied to interruptions. If the
+agent chooses when to be interrupted, it chooses the least damaging moment. So
+the moment is sealed, the hook injects it when that step is recorded and writes
+a `perturbation` record, and the gate fails a run where a due perturbation is
+missing, late, or doesn't match what was sealed.
+
+**Two-phase steps** tighten an existing guard. `observation.expected` is meant to
+be written before acting, and nothing could tell. An optional `intent` record
+(the expectation) followed by an `outcome` record (the result) makes the order
+visible. The gate checks it, and the outcome schema has no `expected` field to
+restate.
+
+**Feedback.** Findings are the pipeline's output, but a defect list doesn't say
+what to change. `pqa report` aggregates accepted findings from every
+gate-passing run by fingerprint: who hit each defect, under which scenario,
+since which build, whether the latest build still shows it. It lays out the
+persona × scenario coverage matrix, with the gaps and each run's own
+`coverage_note`. Its improvement suggestions quote `user_voice` verbatim. The
+`feedback-synthesizer` agent writes the judgment-bearing version from that
+report alone, and `pqa check-improvements` holds it to the same evidence as the
+gate. Every cited defect must have been accepted, every quote must be verbatim,
+and no blocker may be dropped without saying so.
+
+**Detection signal.** Empty cells in the coverage matrix, and defects marked
+"not re-tested" on the latest build. A report with many of either describes the
+runs that happened to be done, not the app.
+
+**Residual risk.** Perturbation records prove the hook fired. They don't prove
+the device was actually taken offline. That is still user-agent's job, and a
+session whose observations show no sign of the interruption is worth a
+reviewer's suspicion. Two-phase ordering is only as strong as the log's
+immutability: an agent free to rewrite `session.jsonl` can write the records in
+any order it likes. The report's suggestions are templates keyed on symptom and
+action. They say where to look, not what to build.
+
+---
+
 ## What this design buys, and what it doesn't
 
 **Buys:** reports that can be compared across runs; defects with stable

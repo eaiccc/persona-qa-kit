@@ -1,0 +1,102 @@
+{
+  "run_id": "2026-08-22-notes-app-offline",
+  "reviewed_at": "2026-08-22T08:47:00Z",
+  "reviewed_by": "qa-reviewer",
+  "candidates_digest": "sha256:10a879adfb64ec510e865dd5e46a6c8a432b34d97e43b2f597e94ae465e6dac0",
+  "reviews": [
+    {
+      "finding_id": "F-001",
+      "verdict": "accepted",
+      "rationale": "Step 4 records Done activated with nothing read out but the button label, and step 5 is a full swipe through the page that finds no status of any kind. The symptom is directly observed. Its fingerprint matches the 2026-08-15 no-feedback finding, which is consistent: same control, same missing state, found here by ear rather than by sight."
+    },
+    {
+      "finding_id": "F-002",
+      "verdict": "accepted",
+      "rationale": "The note is absent from the list at step 6, after the offline window closed and before the scenario's backgrounding, and the editor opens empty at step 8. Probable rather than confirmed is right: the log shows the end state, and cannot distinguish a save that never happened from one that was discarded later. The perturbation records at steps 2 and 6 confirm the offline window covered the save."
+    },
+    {
+      "finding_id": "F-003",
+      "verdict": "merged",
+      "merged_into": "F-002",
+      "rationale": "Same missing note. It was already absent at step 6, before the app was backgrounded, so step 7 shows the loss persisting rather than a second loss on resume. Keeping it separate would double-count one defect under a second fingerprint and suggest a lifecycle cause the log does not support."
+    },
+    {
+      "finding_id": "F-004",
+      "verdict": "rejected",
+      "rejection_reason": "no_evidence",
+      "rationale": "The cited step shows the opposite of a barrier: Dan says 'no signal in here' at step 3, so he knew he was offline. Nothing in the log shows him needing the app to tell him and not being told. Whether an offline banner is exposed to VoiceOver is a fair question, but this session does not contain an observation that answers it."
+    }
+  ],
+  "accepted": [
+    {
+      "id": "F-001",
+      "fingerprint": "pqa1:5c9768281b4dc1ac",
+      "surface": "notes/editor",
+      "action_class": "submit",
+      "symptom_class": "no_feedback",
+      "title": "Done says nothing about whether the note was saved",
+      "user_voice": "it did not read anything out. no idea if that saved",
+      "technical_hypothesis": "After Done the screen does not change and VoiceOver speaks nothing beyond the button's own label. If there is a visual saved/failed indicator it is not exposed to the screen reader; if there is none, this is the same missing state the 2026-08-15 run found by sight. The submit happened while the device was offline, so a queued or failed save with no rendered state is the first thing to check.",
+      "severity": "major",
+      "confidence": "confirmed",
+      "expected": "Pressing Done would say the note was saved, or say it could not be",
+      "observed": "Nothing was read out and the editor stayed open with the text in it",
+      "evidence_refs": [
+        {
+          "kind": "session_log",
+          "steps": [
+            4,
+            5
+          ]
+        }
+      ],
+      "reproduction": [
+        "Turn the connection off",
+        "Open a new note and type any text",
+        "Activate Done with VoiceOver",
+        "Swipe through the screen looking for any status"
+      ],
+      "persona_relevance": "Any user would get no confirmation here. For Dan it is total: he swiped the whole page at step 5 and nothing on it said anything about saving.",
+      "tags": [
+        "feedback",
+        "offline",
+        "screen-reader"
+      ]
+    },
+    {
+      "id": "F-002",
+      "fingerprint": "pqa1:84852121b0795bed",
+      "surface": "notes/editor",
+      "action_class": "submit",
+      "symptom_class": "data_loss",
+      "title": "A note saved while offline never appears in the list",
+      "user_voice": "it is gone then. I wrote that whole thing on the train for nothing",
+      "technical_hypothesis": "The note is missing from the list at step 6, after the connection is back and before any backgrounding, so the loss happens at or after the offline Done and not on the app lifecycle. Possibly saves are sent straight to the server with no local copy, and an offline save is dropped rather than queued. The log cannot tell 'never stored' from 'stored and later discarded'.",
+      "severity": "blocker",
+      "confidence": "probable",
+      "expected": "The note would be in the list once the signal came back",
+      "observed": "The list still held only the existing note, before and after a phone call; a new note opened empty",
+      "evidence_refs": [
+        {
+          "kind": "session_log",
+          "steps": [
+            4,
+            8
+          ]
+        }
+      ],
+      "reproduction": [
+        "Turn the connection off",
+        "Open a new note, type text, press Done",
+        "Turn the connection back on",
+        "Go back to the list"
+      ],
+      "persona_relevance": "The scenario puts the save inside the offline window on purpose. Dan's patchy train signal makes this his normal case rather than an edge case.",
+      "tags": [
+        "persistence",
+        "offline"
+      ]
+    }
+  ],
+  "reviewer_note": "Two of four accepted, one merged, one rejected. The perturbation records were checked against the run manifest before relying on them as context for F-002."
+}

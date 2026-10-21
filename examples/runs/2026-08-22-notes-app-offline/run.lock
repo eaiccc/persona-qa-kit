@@ -1,0 +1,7 @@
+{
+  "run_id": "2026-08-22-notes-app-offline",
+  "sealed_at": "2026-08-22T07:58:30Z",
+  "run_digest": "sha256:f4e28ac4e555a74b23a55db3adbba7c449dabf079e4be0c5dc2d072e5493297d",
+  "persona_card_digest": "sha256:e81d5ba21f246eecded5271b27a2dc018d481c200d614719b9896cbb973da6ac",
+  "scenario_digest": "sha256:cea283b80941b616491d12091e0687907b4cc2e0f480cd1ae69c8984704ce18c"
+}

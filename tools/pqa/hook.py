@@ -11,7 +11,8 @@ Two hooks, two different jobs:
           appended since it last ran, so an old breach does not keep firing at
           whichever agent happens to call a tool next. Records the breach in the
           log rather than asking anyone to remove it, re-injects the persona on
-          cadence, and extends the append-only ledger.
+          cadence, applies the scenario's sealed perturbations as they fall
+          due, and extends the append-only ledger.
 
   gate    Stop / SubagentStop. Runs the gate up to the stage the stopping agent
           is responsible for -- user-agent answers for the session log, not for
@@ -25,7 +26,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from . import drift, gate, ledger, personas
+from . import drift, gate, ledger, personas, scenarios
 from .core import (
     PqaError, RunDir, active_run, clear_active, iso_now, read_json,
 )
@@ -162,10 +163,10 @@ def drift_tick(run: RunDir) -> Result:
             all_records.append(record)
     all_records.extend(appended)
 
-    stdout = ""
-    steps = [r["step"] for r in all_records
-             if r.get("kind") == "observation" and isinstance(r.get("step"), int)]
-    last = max(steps) if steps else 0
+    sealed = manifest.get("scenario")
+    task = sealed["task"] if sealed else None
+    context: list[str] = []
+    last = scenarios.last_step(all_records)
     due = (last // every) * every if every >= 1 else 0
     already = set(drift.injection_steps(all_records))
     # Due at a multiple of the cadence, injected as soon as the log reaches it.
@@ -179,15 +180,45 @@ def drift_tick(run: RunDir) -> Result:
             "persona_id": card.id,
             "card_digest": card.digest,
         })
+        context.append(personas.summary_block(card, task))
+
+    # Sealed perturbations fall due once the step they follow is on the log.
+    # Read from run.json, never from the scenario file: what is injected is
+    # what was sealed. A late one is still applied, and recorded at the step
+    # it actually landed on, so the gate can see it was late. None are applied
+    # once the session has stopped for drift -- there is no next step.
+    if sealed and not (violations and enforce):
+        done = {r.get("index") for r in all_records if r.get("kind") == "perturbation"}
+        for index, perturbation in enumerate(sealed.get("perturbations", [])):
+            if index in done or last < perturbation["at_step"]:
+                continue
+            record = {
+                "kind": "perturbation",
+                "step": last,
+                "ts": iso_now(),
+                "index": index,
+                "at_step": perturbation["at_step"],
+                "do": perturbation["do"],
+                "scenario_id": sealed["id"],
+                "scenario_digest": sealed["scenario_digest"],
+            }
+            if perturbation.get("for"):
+                record["for"] = perturbation["for"]
+            appended.append(record)
+            context.append(scenarios.perturbation_block(sealed, index))
+
+    stdout = ""
+    if context:
         if code == EXIT_OK:
             stdout = json.dumps({
                 "hookSpecificOutput": {
                     "hookEventName": "PostToolUse",
-                    "additionalContext": personas.summary_block(card),
+                    "additionalContext": "\n\n---\n\n".join(context),
                 }
             })
         else:
-            messages.append(personas.summary_block(card))
+            # exit 2 discards stdout, so the context rides along on stderr.
+            messages.extend(context)
 
     if appended:
         text = run.session.read_bytes()

@@ -48,6 +48,9 @@ an unenforced minimum reliably produces "looks fine".
    drifted session look like a successful one. If the log has a `drift_breach`
    record, anything citing that step or later is this case by definition, and
    the gate refuses to let you accept it.
+   In a scenario run, check perturbation timing too. A finding blamed on an
+   interruption has to show the symptom after the `perturbation` record, not
+   before it.
 4. **Is it already filed?** Same fingerprint or same underlying cause: `merged`,
    with `merged_into` pointing at the survivor.
 5. **Are severity and confidence right, and are they independent?** Adjust with
