@@ -47,6 +47,14 @@ class TestTermMatching(unittest.TestCase):
         # Deliberately not matched: predictability beats recall for a tripwire.
         self.assertFalse(drift.term_pattern("cache").search("caching is broken"))
 
+    def test_cjk_text_has_no_word_boundaries(self):
+        # Chinese is written without spaces. Treating CJK characters as word
+        # characters made every term unmatchable in a Chinese session log.
+        self.assertTrue(drift.term_pattern("模型").search("這個模型認錯字了"))
+        self.assertTrue(drift.term_pattern("OCR").search("應該是OCR辨識錯"))
+        self.assertTrue(drift.term_pattern("prompt").search("改一下prompt就好"))
+        self.assertFalse(drift.term_pattern("API").search("RAPID"))
+
     def test_empty_term_rejected(self):
         with self.assertRaises(ValueError):
             drift.term_pattern("   ")

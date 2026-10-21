@@ -41,7 +41,12 @@ def term_pattern(term: str) -> re.Pattern[str]:
     Matching rules, chosen for predictability over recall:
 
       * case-insensitive
-      * whole words only, so "cache" does not fire inside "cached out"
+      * whole words only, so "cache" does not fire inside "cached out" -- where
+        "word" means ASCII letters, digits and underscore. Chinese and Japanese
+        are written without spaces, so a CJK character next to a term is not a
+        longer word: "OCR" must fire in "用OCR辨識" and "模型" in "這個模型很爛".
+        Python's \\w counts CJK characters as word characters, which silently
+        made the tripwire inert for any log not written in English
       * multi-word terms tolerate any run of non-word characters between words,
         so "race condition" matches "race-condition"
       * an optional trailing "s" or "es" is allowed, so listing "API" catches
@@ -55,7 +60,7 @@ def term_pattern(term: str) -> re.Pattern[str]:
     if not words:
         raise ValueError("empty never_uses term")
     body = r"\W+".join(re.escape(w) for w in words)
-    return re.compile(rf"(?<!\w){body}(?:es|s)?(?!\w)", re.IGNORECASE)
+    return re.compile(rf"(?<![A-Za-z0-9_]){body}(?:es|s)?(?![A-Za-z0-9_])", re.IGNORECASE)
 
 
 def _texts(record: dict[str, Any]) -> Iterable[tuple[str, str]]:

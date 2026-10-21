@@ -20,8 +20,9 @@ next.
 
 Each subagent's stop is gated by a SubagentStop hook at that role's stage, and
 your own stop by the full gate. Environment variables you export do not reach
-the hooks; they find the run as the newest `runs/*/run.json`, so do not start a
-second run in the same checkout while this one is in progress.
+the hooks; they find the run that `pqa seal` marked active (runs/.active), so
+seal before dispatching anyone, and do not seal a second run in this checkout
+while this one is in progress.
 
 ---
 

@@ -105,8 +105,8 @@
           "minItems": 5,
           "maxItems": 60,
           "uniqueItems": true,
-          "items": { "type": "string", "minLength": 3, "maxLength": 60 },
-          "description": "Terms this person does not have. Matched case-insensitively against the session log by `pqa drift`, which is a deterministic string check rather than a model call -- a cheap tripwire for a failure that would otherwise need another agent to notice.\n\nA minimum of 5 is required: an empty or near-empty list silently disables the tripwire, and a disabled check that still appears to run is worse than no check."
+          "items": { "type": "string", "minLength": 2, "maxLength": 60 },
+          "description": "Terms this person does not have. Two characters is the floor because most Chinese and Japanese technical terms are two characters long (模型, 後端). Matched case-insensitively against the session log by `pqa drift`, which is a deterministic string check rather than a model call -- a cheap tripwire for a failure that would otherwise need another agent to notice.\n\nA minimum of 5 is required: an empty or near-empty list silently disables the tripwire, and a disabled check that still appears to run is worse than no check."
         }
       }
     },

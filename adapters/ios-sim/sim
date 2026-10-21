@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#
+# sim -- drive the iOS Simulator from inside a sandbox, through sim_bridge.py.
+#
+#   sim ui                      what is on screen: one line per element, with its centre point
+#   sim tap <x> <y>             tap a point (points, not pixels; the screen is about 402 x 874)
+#   sim tap-label <label>       tap the element with this accessibility label
+#   sim long-press <x> <y>
+#   sim type <ascii text>       type into the focused field
+#   sim paste <text>            put any text (Chinese too) in the focused field via the clipboard
+#   sim swipe <x1> <y1> <x2> <y2>
+#   sim scroll up|down|left|right
+#   sim button home|lock
+#   sim screenshot <name>       save screenshots/<name>.png in the active run
+#   sim launch | sim terminate  open or close the app under test
+#   sim wait <seconds>          pause (at most 30)
+#
+# The bridge, running outside the sandbox, decides which simulator and which
+# app; nothing passed here can change that.
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+BRIDGE="${SIM_BRIDGE_DIR:-$ROOT/runs/.sim-bridge}"
+TIMEOUT="${SIM_BRIDGE_TIMEOUT:-90}"
+
+cmd="${1:-}"
+[ -n "$cmd" ] || { sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+shift
+
+if [ "$cmd" = wait ]; then
+  secs="${1:-1}"
+  case "$secs" in (*[!0-9]*|'') echo "sim: wait takes whole seconds" >&2; exit 2;; esac
+  [ "$secs" -gt 30 ] && secs=30
+  sleep "$secs"; echo "waited ${secs}s"; exit 0
+fi
+
+[ -d "$BRIDGE/requests" ] || {
+  echo "sim: no bridge at $BRIDGE -- the operator has to start sim_bridge.py" >&2; exit 1; }
+
+id="$(date +%s)-$$-$RANDOM"
+python3 -c 'import json,sys; print(json.dumps({"cmd": sys.argv[1], "args": sys.argv[2:]}, ensure_ascii=False))' \
+  "$cmd" "$@" > "$BRIDGE/requests/.$id.tmp" && mv "$BRIDGE/requests/.$id.tmp" "$BRIDGE/requests/$id.json"
+
+response="$BRIDGE/responses/$id.json"
+for _ in $(seq 1 $((TIMEOUT * 5))); do
+  if [ -f "$response" ]; then
+    python3 -c 'import json,sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+print(d["output"])
+sys.exit(0 if d["ok"] else 1)' "$response"
+    status=$?
+    rm -f "$response"
+    exit "$status"
+  fi
+  sleep 0.2
+done
+echo "sim: no answer from the bridge after ${TIMEOUT}s -- is sim_bridge.py running?" >&2
+exit 1

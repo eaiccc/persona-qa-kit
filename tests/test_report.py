@@ -30,6 +30,12 @@ class ReportCase(KitTestCase):
         self.second = self.root / "runs" / SCENARIO_EXAMPLE.name
         shutil.copytree(SCENARIO_EXAMPLE, self.second)
         shutil.copy(KIT / "examples" / "improvements.json", self.root / "improvements.json")
+        # The coverage matrix lists every persona card, so pin the set these
+        # expectations were written for; shipping a new card is not a regression.
+        fixtures = {"cautious-first-timer", "screen-reader-commuter", "time-starved-parent"}
+        for card in (self.root / "personas").glob("*.yaml"):
+            if card.stem not in fixtures:
+                card.unlink()
 
     def build(self, **kwargs):
         from pqa import report
