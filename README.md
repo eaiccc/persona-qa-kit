@@ -65,7 +65,10 @@ Then start a real one:
 ```
 
 `seal` refuses to run once `session.jsonl` exists. That is the point: stopping
-conditions chosen after seeing the results are not stopping conditions.
+conditions chosen after seeing the results are not stopping conditions. It also
+marks the run active, which is how the hooks find it; the final gate clears the
+mark. To run two sessions at once, launch each with `PQA_RUN_DIR` pointing at its
+own run.
 
 Then dispatch `qa-orchestrator`, which drives the rest. When it finishes:
 
@@ -73,6 +76,9 @@ Then dispatch `qa-orchestrator`, which drives the rest. When it finishes:
 ./bin/pqa gate runs/2026-08-15-my-app
 ./bin/pqa signals runs/
 ```
+
+`pqa gate --stage session|candidates|review` checks a run only as far as it has
+got, which is what the hook does as each agent stops.
 
 ## What is actually enforced
 
@@ -84,14 +90,16 @@ should be a constraint.
 | Failure mode | What stops it | Where |
 |---|---|---|
 | Agent certifies its own work | The session log schema has no `severity`, `pass`, or `status` field, and `additionalProperties` is false | [schemas/session-record.schema.json](schemas/session-record.schema.json) |
-| Review gets skipped | Missing or invalid `findings.reviewed.json` blocks completion with exit code 2 | [hooks/qa-review-gate.sh](hooks/qa-review-gate.sh) |
+| Review gets skipped | Missing or invalid `findings.reviewed.json` blocks completion with exit code 2. Each agent is gated on its own stage as it stops, so the pipeline can advance but cannot skip | [hooks/qa-review-gate.sh](hooks/qa-review-gate.sh), [tools/pqa/hook.py](tools/pqa/hook.py) |
+| Trust verdict omitted | The final stage requires `evaluation.json`, and its lexical violations must include every breach the string match finds | [tools/pqa/gate.py](tools/pqa/gate.py) |
 | A candidate is quietly dropped | Every candidate must have exactly one review; the mapping is checked in both directions | [tools/pqa/gate.py](tools/pqa/gate.py) |
 | Findings are unfalsifiable prose | Every finding validates against a schema; free text is confined to named fields | [schemas/finding.schema.json](schemas/finding.schema.json) |
 | Fabricated defects | `evidence_refs` must resolve to real session steps and real files | [tools/pqa/gate.py](tools/pqa/gate.py) |
 | Defects lose identity between runs | `fingerprint` is derived from constrained values and recomputed by the gate | [tools/pqa/fingerprint.py](tools/pqa/fingerprint.py) |
 | Stopping conditions moved mid-run | `run.json` is hashed into `run.lock` before execution and rechecked after | [tools/pqa/gate.py](tools/pqa/gate.py) |
 | Reviewer rewrites the defect | Accepted findings must match their candidate's fingerprint; only severity and confidence may be adjusted | [tools/pqa/gate.py](tools/pqa/gate.py) |
-| Persona drift | `never_uses` terms are string-matched mid-session and fail the step | [hooks/persona-drift-check.sh](hooks/persona-drift-check.sh) |
+| Persona drift | `never_uses` terms are string-matched against each new record mid-session; a hit is recorded and ends the session, and nothing from that step on may be accepted | [hooks/persona-drift-check.sh](hooks/persona-drift-check.sh) |
+| Evidence edited after the fact | `session.jsonl` is append-only: the drift hook keeps a ledger of prefix digests, and the gate re-derives every one | [tools/pqa/ledger.py](tools/pqa/ledger.py) |
 | Persona card edited mid-run | The card digest is bound into `run.json` and verified | [tools/pqa/gate.py](tools/pqa/gate.py) |
 
 Each row has a test that breaks exactly that one thing and asserts the gate
@@ -133,7 +141,7 @@ schemas/*.json         the artifact contracts
 hooks/*.sh             the two enforcement hooks
 tools/pqa/             the CLI and every deterministic check
 examples/runs/         one complete, gate-passing run
-tests/                 129 tests, stdlib unittest
+tests/                 166 tests, stdlib unittest
 ```
 
 ## Writing a persona

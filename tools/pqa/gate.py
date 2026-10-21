@@ -14,17 +14,27 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import drift, fingerprint, personas, validate
+from . import drift, fingerprint, ledger, personas, validate
 from .core import PqaError, Report, RunDir, digest_file, read_json
 
-__all__ = ["run_gate"]
+__all__ = ["run_gate", "STAGES"]
 
 _SEVERITY_RANK = {"blocker": 0, "major": 1, "minor": 2, "cosmetic": 3}
 _CONFIDENCE_RANK = {"confirmed": 0, "probable": 1, "possible": 2, "speculative": 3}
 
+# How far through the pipeline a run is expected to be. Each stage checks
+# everything the earlier ones do plus its own artifact, so the gate can run when
+# each agent finishes rather than only at the end. Gating user-agent on a review
+# that cannot exist yet does not enforce the order of the pipeline; it stops the
+# pipeline from ever reaching the review.
+STAGES = ("session", "candidates", "review", "final")
 
-def run_gate(run: RunDir) -> Report:
-    """Every gate check, in dependency order. Later stages skip if inputs failed."""
+
+def run_gate(run: RunDir, stage: str = "final") -> Report:
+    """Every check up to `stage`, in dependency order. Later checks skip if inputs failed."""
+    if stage not in STAGES:
+        raise PqaError(f"unknown stage {stage!r} (expected one of: {', '.join(STAGES)})")
+    depth = STAGES.index(stage)
     report = Report()
 
     manifest = _check_manifest(run, report)
@@ -34,14 +44,38 @@ def run_gate(run: RunDir) -> Report:
     card = _check_persona(run, manifest, report)
     records = _check_session(run, manifest, report)
 
+    breach_step = None
     if records is not None and card is not None:
-        _check_drift(manifest, card, records, report)
+        breach_step = _check_drift(manifest, card, records, report)
+
+    if depth < STAGES.index("candidates"):
+        return report
 
     candidates = _check_candidates(run, manifest, records, report)
-    if candidates is not None:
-        _check_review(run, manifest, candidates, records, report)
+    if depth < STAGES.index("review"):
+        return report
 
+    reviewed = None
+    if candidates is not None:
+        reviewed = _check_review(run, manifest, candidates, records, report)
+    accepted = (reviewed or {}).get("accepted", [])
+    if breach_step is not None:
+        _check_drifted_evidence(accepted, breach_step, manifest, report)
+    if depth < STAGES.index("final"):
+        return report
+
+    _check_evaluation(run, manifest, card, records, accepted, report)
     return report
+
+
+def _cited_steps(finding: dict[str, Any]) -> set[int]:
+    steps: set[int] = set()
+    for ref in finding.get("evidence_refs", []):
+        if ref.get("kind") == "session_log" and ref.get("steps"):
+            wanted = ref["steps"]
+            if isinstance(wanted[0], int) and isinstance(wanted[-1], int):
+                steps.update(range(wanted[0], wanted[-1] + 1))
+    return steps
 
 
 # --------------------------------------------------------------------------
@@ -146,6 +180,17 @@ def _check_session(
     if not session_report.ok:
         return None
 
+    if run.ledger.exists():
+        ledger.verify(run.ledger, run.session, report)
+    else:
+        report.warn(
+            "session.jsonl",
+            "no session.ledger.jsonl -- nothing shows this log was only ever appended to",
+            "the drift hook writes the ledger on every tool call. Its absence "
+            "usually means the hook is not wired up, which also means no live "
+            "drift check ran",
+        )
+
     stopping = manifest["stopping_conditions"]
     budget = stopping["step_budget"]
     observations = [r for r in records if r.get("kind") == "observation"]
@@ -159,7 +204,7 @@ def _check_session(
             "comparable with runs that respected it",
         )
 
-    terminal = records[-1] if records and records[-1].get("kind") == "terminated" else None
+    terminal = _terminal(records)
     if terminal is not None:
         reason = terminal.get("reason")
         if reason == "step_budget" and len(observations) < budget:
@@ -179,6 +224,14 @@ def _check_session(
     return records
 
 
+def _terminal(records: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for record in reversed(records):
+        if record.get("kind") in validate.HOOK_KINDS:
+            continue
+        return record if record.get("kind") == "terminated" else None
+    return None
+
+
 # --------------------------------------------------------------------------
 # stage 4: drift
 # --------------------------------------------------------------------------
@@ -188,25 +241,73 @@ def _check_drift(
     card: personas.PersonaCard,
     records: list[dict[str, Any]],
     report: Report,
-) -> None:
+) -> int | None:
+    """Lexical drift. Returns the first breached step, or None.
+
+    A breach no longer has to sink the whole run. The protocol is that the live
+    hook records it, the session stops there with reason 'persona_drift', and
+    nothing after that step is counted as this persona's evidence. A session
+    that followed that protocol is honest evidence up to the breach. One that
+    carried on past it, or ended for some other stated reason, is not.
+    """
     control = manifest.get("drift_control", {})
     enforce = control.get("enforce_never_uses", True)
     every = control.get("reinject_every_steps", 8)
-    report.checks_run += 2
+    report.checks_run += 3
 
     violations = drift.scan(records, card.never_uses)
-    for violation in violations[:20]:
-        message = f"persona vocabulary breach -- {violation}"
-        hint = (
-            "this persona has no such word. Either the agent drifted, or the "
-            "card's never_uses list is wrong; both are worth knowing"
+    terminal = _terminal(records)
+    drift_terminated = terminal is not None and terminal.get("reason") == "persona_drift"
+    first = min(v.step for v in violations) if violations else None
+
+    if first is None and drift_terminated:
+        report.error(
+            "session.jsonl",
+            "terminated with reason 'persona_drift' but the log has no vocabulary breach",
         )
-        if enforce:
-            report.error("drift", message, hint)
+
+    if first is not None:
+        later = sorted(
+            r["step"] for r in records
+            if r.get("kind") == "observation" and r["step"] > first
+        )
+        handled = drift_terminated and not later
+
+        if handled:
+            report.warn(
+                "drift",
+                f"persona vocabulary breach at step {first}; the session stopped "
+                "there as required",
+                f"steps {first} onward are not this persona's evidence. "
+                "Accepted findings may not cite them",
+            )
         else:
-            report.warn("drift", message, hint)
-    if len(violations) > 20:
-        report.warn("drift", f"... and {len(violations) - 20} further vocabulary breaches")
+            hint = (
+                "this persona has no such word. On a breach the session must "
+                "stop at once with a 'terminated' record whose reason is "
+                "'persona_drift'. Do not edit the earlier record: the log is "
+                "append-only"
+            )
+            if later:
+                hint = f"the session carried on for step(s) {later[:5]} after it. " + hint
+            for violation in violations[:20]:
+                message = f"persona vocabulary breach -- {violation}"
+                if enforce:
+                    report.error("drift", message, hint)
+                else:
+                    report.warn("drift", message, hint)
+            if len(violations) > 20:
+                report.warn("drift", f"... and {len(violations) - 20} further vocabulary breaches")
+
+        recorded = {r.get("step") for r in records if r.get("kind") == "drift_breach"}
+        unrecorded = sorted({v.step for v in violations} - recorded)
+        if unrecorded:
+            report.warn(
+                "drift",
+                f"breach at step(s) {unrecorded} has no drift_breach record",
+                "the live drift hook writes one when it sees the breach. Without "
+                "it, nothing caught this while the session was running",
+            )
 
     steps = [r["step"] for r in records if r.get("kind") == "observation"]
     last = max(steps) if steps else 0
@@ -219,6 +320,36 @@ def _check_drift(
             "the drift hook may not be wired up; a hook that stopped firing "
             "looks exactly like a session with no drift",
         )
+    return first
+
+
+def _check_drifted_evidence(
+    accepted: list[dict[str, Any]],
+    breach_step: int,
+    manifest: dict[str, Any],
+    report: Report,
+) -> None:
+    """Accepted findings may not rest on steps at or after the first breach."""
+    enforce = manifest.get("drift_control", {}).get("enforce_never_uses", True)
+    report.checks_run += 1
+    for finding in accepted:
+        late = sorted(s for s in _cited_steps(finding) if s >= breach_step)
+        if not late:
+            continue
+        message = (
+            f"accepted, but cites step(s) {late} at or after the vocabulary "
+            f"breach at step {breach_step}"
+        )
+        hint = (
+            "past the breach the agent was not this persona. The finding may be "
+            "real, but it is a QA engineer's finding: reject it as "
+            "persona_drift_artifact"
+        )
+        where = f"findings.reviewed.json[{finding.get('id', '?')}]"
+        if enforce:
+            report.error(where, message, hint)
+        else:
+            report.warn(where, message, hint)
 
 
 # --------------------------------------------------------------------------
@@ -359,7 +490,7 @@ def _check_review(
     candidates: dict[str, Any],
     records: list[dict[str, Any]] | None,
     report: Report,
-) -> None:
+) -> dict[str, Any] | None:
     report.checks_run += 1
 
     if not run.reviewed.exists():
@@ -370,20 +501,20 @@ def _check_review(
             "the one check the kit exists for: a run cannot report findings it "
             "declined to have reviewed",
         )
-        return
+        return None
 
     try:
         reviewed = read_json(run.reviewed)
     except PqaError as exc:
         report.error("findings.reviewed.json", str(exc))
-        return
+        return None
 
     schema_report = validate.check_instance(
         reviewed, "findings.reviewed.schema.json", "findings.reviewed.json"
     )
     report.extend(schema_report)
     if not schema_report.ok:
-        return
+        return None
 
     report.checks_run += 3
 
@@ -438,6 +569,7 @@ def _check_review(
 
     _check_accepted(reviewed, proposed, by_id, run, records, report)
     _check_review_signals(reviews, reviewed.get("accepted", []), report)
+    return reviewed
 
 
 def _check_accepted(
@@ -495,6 +627,123 @@ def _check_accepted(
                 )
 
     _check_findings(accepted, run, records, "findings.reviewed.json", report)
+
+
+# --------------------------------------------------------------------------
+# stage 7: the evaluation
+# --------------------------------------------------------------------------
+
+def _check_evaluation(
+    run: RunDir,
+    manifest: dict[str, Any],
+    card: personas.PersonaCard | None,
+    records: list[dict[str, Any]] | None,
+    accepted: list[dict[str, Any]],
+    report: Report,
+) -> None:
+    """The trust verdict is part of the result, so its absence is a failure.
+
+    Without it a drifted run and a sound one produce identical-looking output,
+    and the orchestrator has nothing to report about whether to believe either.
+    """
+    report.checks_run += 1
+
+    if not run.evaluation.exists():
+        report.error(
+            "evaluation.json",
+            "missing -- persona-evaluator has not run",
+            "the evaluation is what tells a reader whether this run is evidence "
+            "about the persona at all. A run reported without it invites the "
+            "reader to trust a session nobody checked for drift",
+        )
+        return
+
+    try:
+        evaluation = read_json(run.evaluation)
+    except PqaError as exc:
+        report.error("evaluation.json", str(exc))
+        return
+
+    schema_report = validate.check_instance(
+        evaluation, "evaluation.schema.json", "evaluation.json"
+    )
+    report.extend(schema_report)
+    if not schema_report.ok:
+        return
+
+    report.checks_run += 4
+    if evaluation.get("run_id") != manifest.get("run_id"):
+        report.error(
+            "evaluation.json",
+            f"run_id {evaluation.get('run_id')!r} does not match run.json",
+        )
+
+    declared = manifest.get("persona", {})
+    evaluated = evaluation.get("persona", {})
+    if (evaluated.get("id"), evaluated.get("version")) != (
+        declared.get("id"), declared.get("version")
+    ):
+        report.error(
+            "evaluation.json",
+            f"evaluates persona {evaluated.get('id')} v{evaluated.get('version')}, "
+            f"but the run used {declared.get('id')} v{declared.get('version')}",
+        )
+
+    # The evaluator is told to copy the deterministic half verbatim. If it
+    # reports fewer breaches than a string match finds, its soft judgment has
+    # quietly overruled the one check that cannot be argued with.
+    if card is not None and records is not None:
+        found = {(v.step, v.term) for v in drift.scan(records, card.never_uses)}
+        reported = {
+            (v.get("step"), v.get("term"))
+            for v in evaluation["drift"].get("lexical_violations", [])
+        }
+        omitted = sorted(found - reported)
+        if omitted:
+            report.error(
+                "evaluation.json",
+                f"drift.lexical_violations omits {len(omitted)} breach(es) "
+                f"`pqa drift` finds, e.g. step {omitted[0][0]}: {omitted[0][1]!r}",
+                "copy the deterministic drift report in full; the evaluator "
+                "adds judgment on top of it, it does not replace it",
+            )
+        if found and evaluation["trust"]["verdict"] == "trustworthy":
+            report.warn(
+                "evaluation.json",
+                "trust verdict is 'trustworthy' despite a vocabulary breach",
+            )
+
+    trust = evaluation["trust"]
+    verdict = trust["verdict"]
+    if verdict == "degraded":
+        through = trust.get("usable_through_step")
+        if through is None:
+            report.error(
+                "evaluation.json",
+                "trust verdict is 'degraded' but usable_through_step is not set",
+                "a degraded run is only usable up to a point, and the reader "
+                "needs to know which point",
+            )
+        else:
+            late = [
+                f.get("id", "?") for f in accepted
+                if any(s > through for s in _cited_steps(f))
+            ]
+            if late:
+                report.warn(
+                    "evaluation.json",
+                    f"accepted finding(s) {late} cite steps after "
+                    f"usable_through_step ({through})",
+                    "these are real but they are a QA engineer's findings, not "
+                    "this persona's. Report them separately",
+                )
+    elif verdict == "untrustworthy":
+        report.warn(
+            "evaluation.json",
+            "persona-evaluator judged this run untrustworthy",
+            "the artifacts are well-formed, but neither the findings nor the "
+            "coverage should be read as this persona's experience",
+        )
 
 
 # --------------------------------------------------------------------------

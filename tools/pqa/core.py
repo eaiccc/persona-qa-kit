@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 __all__ = [
-    "kit_root", "schema_path", "RunDir", "Problem", "Report",
+    "kit_root", "schema_path", "runs_dir", "active_run", "set_active", "clear_active",
+    "RunDir", "Problem", "Report",
     "digest_bytes", "digest_file", "iso_now", "read_json", "read_jsonl",
     "colorize", "PqaError",
 ]
@@ -45,6 +46,60 @@ def schema_path(name: str) -> Path:
 
 def personas_dir() -> Path:
     return kit_root() / "personas"
+
+
+def runs_dir() -> Path:
+    override = os.environ.get("PQA_RUNS_DIR")
+    if override:
+        return Path(override).expanduser().resolve()
+    return kit_root() / "runs"
+
+
+# --------------------------------------------------------------------------
+# the active run
+# --------------------------------------------------------------------------
+#
+# Hooks need to know which run they are guarding. An environment variable set
+# by an agent's Bash call does not reach them -- hooks inherit the harness's
+# environment, not the tool's -- so `pqa seal` records the run in a pointer file
+# instead, and the final gate clears it. "Newest run.json on disk" was the old
+# fallback; it guessed wrong whenever two runs coexisted, and it made every
+# session in this checkout answer to whatever run happened to be lying around.
+
+def active_pointer() -> Path:
+    return runs_dir() / ".active"
+
+
+def active_run() -> Path | None:
+    """PQA_RUN_DIR if set, else the run `pqa seal` marked active, else None."""
+    explicit = os.environ.get("PQA_RUN_DIR")
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    pointer = active_pointer()
+    try:
+        target = Path(pointer.read_text(encoding="utf-8").strip())
+    except (FileNotFoundError, OSError):
+        return None
+    return target if (target / "run.json").exists() else None
+
+
+def set_active(run_path: Path) -> Path | None:
+    """Mark a run active. Returns the run it displaced, if any."""
+    previous = active_run() if not os.environ.get("PQA_RUN_DIR") else None
+    pointer = active_pointer()
+    pointer.parent.mkdir(parents=True, exist_ok=True)
+    pointer.write_text(f"{run_path.resolve()}\n", encoding="utf-8")
+    return previous if previous and previous != run_path.resolve() else None
+
+
+def clear_active(run_path: Path) -> None:
+    """Clear the pointer, but only if it still names this run."""
+    pointer = active_pointer()
+    try:
+        if Path(pointer.read_text(encoding="utf-8").strip()) == run_path.resolve():
+            pointer.unlink()
+    except (FileNotFoundError, OSError):
+        pass
 
 
 # --------------------------------------------------------------------------
@@ -146,6 +201,16 @@ class RunDir:
     @property
     def evaluation(self) -> Path:
         return self.path / "evaluation.json"
+
+    @property
+    def ledger(self) -> Path:
+        """Prefix digests of session.jsonl, written by the drift hook."""
+        return self.path / "session.ledger.jsonl"
+
+    @property
+    def gate_blocks(self) -> Path:
+        """How many times the hook gate has refused each stage in a row."""
+        return self.path / ".gate-blocks.json"
 
     def resolve(self, relative: str) -> Path:
         """Resolve an artifact reference, refusing to escape the run directory.

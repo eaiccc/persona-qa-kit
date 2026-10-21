@@ -67,6 +67,8 @@ You stop when one of these happens, and you write a final `terminated` record:
   configured number of steps. Write a `blocked` record naming the repeated steps
   first. Being stuck in a loop usually means you have found the defect
 - `out_of_scope` — the only way forward is somewhere your persona would not go
+- `persona_drift` — the drift check told you a record used a word your persona
+  does not have. Stop immediately; see below
 
 Retry no more than your card's `retry_tolerance`. A methodical agent retries
 indefinitely; almost no real person does, and retrying past your tolerance is
@@ -74,7 +76,17 @@ the most common way this run stops being about your persona.
 
 ## Vocabulary
 
-Your card lists `never_uses`. Those terms are string-matched against your log
-while the session runs, and a hit stops the step. If you find yourself reaching
-for one, you have already drifted — the fix is not a synonym, it is to go back
-to describing what you saw and how it felt.
+Your card lists `never_uses`. Those terms are string-matched against each record
+you append while the session runs. If you find yourself reaching for one, you
+have already drifted — the fix is not a synonym, it is to go back to describing
+what you saw and how it felt.
+
+If the check fires, the breach is recorded in the log for you. **Do not edit,
+rephrase, or delete the record that contains it.** The log is append-only: every
+earlier line is evidence that later stages depend on, a digest ledger makes any
+edit visible, and an edited log fails the run outright. Append one `terminated`
+record with reason `persona_drift` and stop. Everything before that step is
+still good evidence; nothing after it would be your persona's.
+
+The same rule holds for any mistake. Correct a step by appending, never by
+going back.

@@ -9,7 +9,9 @@
     "after the run is over.",
     "",
     "qa-review-gate runs on Stop and SubagentStop, which is where an agent would",
-    "otherwise declare itself finished."
+    "otherwise declare itself finished. It gates each agent on its own stage",
+    "(user-agent: the session log; qa-agent: candidates; and so on), and the",
+    "run it guards is the one `pqa seal` marked active."
   ],
 
   "hooks": {

@@ -12,58 +12,32 @@
 # blocks completion and returns stderr to the agent; the agent has no way to
 # override it, because the decision is not the agent's to make.
 #
+# Gated by stage. SubagentStop names the agent that stopped, and each role
+# answers only for what it produces: user-agent for the session log, qa-agent
+# for the candidates, qa-reviewer for the review, persona-evaluator and the
+# final Stop for everything. Gating user-agent on a review that cannot exist
+# yet would not enforce the pipeline's order -- it would stop the pipeline.
+#
+# The run is the one `pqa seal` marked active (or PQA_RUN_DIR, if the harness
+# was launched with it). No active run means this session is not a QA run.
+#
 # Fails closed on its own errors too: if this script cannot determine whether
 # the review happened, it blocks. A gate that passes when it is broken is not a
-# gate.
+# gate. It does give up after a few refusals in a row, so one unfixable
+# artifact cannot loop a session forever -- `pqa gate` still fails the run.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Hook input arrives on stdin as JSON. We do not need any of it -- the run
-# directory is located on disk, not taken from the agent -- but draining it
-# avoids a broken pipe upstream.
-cat >/dev/null 2>&1 || true
-
-resolve_run_dir() {
-  if [ -n "${PQA_RUN_DIR:-}" ]; then
-    printf '%s' "$PQA_RUN_DIR"
-    return 0
-  fi
-
-  local base="${PQA_RUNS_DIR:-$ROOT/runs}"
-  [ -d "$base" ] || return 1
-
-  local newest=""
-  for candidate in "$base"/*/; do
-    [ -f "${candidate}run.json" ] || continue
-    if [ -z "$newest" ] || [ "${candidate}run.json" -nt "${newest}run.json" ]; then
-      newest="$candidate"
-    fi
-  done
-
-  [ -n "$newest" ] || return 1
-  printf '%s' "${newest%/}"
-}
-
-RUN_DIR="$(resolve_run_dir)" || {
-  # No run in progress: this session was not a QA run, so there is nothing to
-  # gate. This is the one case where passing is correct.
-  exit 0
-}
-
-OUTPUT="$("$ROOT/bin/pqa" gate "$RUN_DIR" 2>&1)"
+# The hook input (which agent stopped, and why) goes straight through on stdin.
+# All decisions live in tools/pqa/hook.py, where they are tested.
+"$ROOT/bin/pqa" hook gate
 STATUS=$?
 
-if [ "$STATUS" -eq 0 ]; then
-  printf '%s\n' "$OUTPUT"
-  exit 0
+# 0 and 2 are answers. Anything else means the gate could not run, and a gate
+# that cannot run must not let the run through.
+if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 2 ]; then
+  echo "The review gate could not run (exit $STATUS) and so refuses this run." >&2
+  exit 2
 fi
-
-{
-  printf 'The review gate refused this run (%s).\n\n' "$RUN_DIR"
-  printf '%s\n\n' "$OUTPUT"
-  printf 'Fix the artifacts listed above and let the gate run again.\n'
-  printf 'Do not summarize the run as complete while this check is failing.\n'
-} >&2
-
-exit 2
+exit "$STATUS"

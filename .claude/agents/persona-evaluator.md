@@ -23,7 +23,11 @@ Start with the deterministic half:
 ./bin/pqa drift runs/<run-id>
 ```
 Copy its violations into `drift.lexical_violations` and its injection points into
-`drift.injection_steps`. Then do the part it cannot do.
+`drift.injection_steps`, all of them. The gate re-runs the string match and fails
+the run if your list is missing any. Then do the part it cannot do.
+
+A session that ended with `persona_drift` is at best `degraded`, with
+`usable_through_step` before the breach.
 
 ## Score the halves separately
 
@@ -61,7 +65,7 @@ retry_tolerance to 1" is.
 
 - `trustworthy` — in character throughout. Findings and coverage both usable.
 - `degraded` — drifted partway. Set `usable_through_step` to the last in-character
-  step. Findings after it are real but they are a QA engineer's findings; the
+  step; the gate rejects a degraded verdict without it. Findings after it are real but they are a QA engineer's findings; the
   coverage claim for the whole run is void.
 - `untrustworthy` — never established the persona, or drifted early enough that
   the session is a generic exploration with a persona's name on it.

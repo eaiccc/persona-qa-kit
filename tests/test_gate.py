@@ -257,6 +257,47 @@ class TestPersonaBinding(KitTestCase):
         self.assertBlocks(self.gate(), "session_digest")
 
 
+class TestEvaluationIsRequired(KitTestCase):
+    """The trust verdict is part of the result, not an optional extra."""
+
+    def test_missing_evaluation_blocks(self):
+        (self.run_path / "evaluation.json").unlink()
+        self.assertBlocks(self.gate(), "persona-evaluator has not run")
+
+    def test_review_stage_does_not_need_it(self):
+        from pqa.gate import run_gate
+
+        (self.run_path / "evaluation.json").unlink()
+        self.assertPasses(run_gate(self.run_dir(), "review"))
+
+    def test_evaluation_of_another_run_blocks(self):
+        evaluation = self.read("evaluation.json")
+        evaluation["run_id"] = "2026-08-14-some-other-run"
+        self.write("evaluation.json", evaluation)
+        self.assertBlocks(self.gate(), "does not match run.json")
+
+    def test_evaluation_omitting_a_deterministic_breach_blocks(self):
+        path = self.run_path / "session.jsonl"
+        path.write_text(path.read_text().replace("pale grey", "a race condition"))
+        self.redigest()
+        self.assertBlocks(self.gate(), "lexical_violations omits")
+
+    def test_degraded_without_a_cutoff_blocks(self):
+        evaluation = self.read("evaluation.json")
+        evaluation["trust"]["verdict"] = "degraded"
+        self.write("evaluation.json", evaluation)
+        self.assertBlocks(self.gate(), "usable_through_step is not set")
+
+    def test_findings_past_the_cutoff_warn(self):
+        evaluation = self.read("evaluation.json")
+        evaluation["trust"]["verdict"] = "degraded"
+        evaluation["trust"]["usable_through_step"] = 4
+        self.write("evaluation.json", evaluation)
+        report = self.gate()
+        self.assertPasses(report)
+        self.assertTrue(any("after usable_through_step" in w.message for w in report.warnings))
+
+
 class TestSelfCertificationSignal(KitTestCase):
     def test_accepting_everything_warns(self):
         reviewed = self.read("findings.reviewed.json")

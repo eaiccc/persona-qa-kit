@@ -36,6 +36,9 @@ _VERDICT_HINT = (
     "propose a defect from it. See DESIGN.md section 1."
 )
 
+# Session records written by the drift hook rather than by user-agent.
+HOOK_KINDS = ("persona_injection", "drift_breach")
+
 
 def _cache() -> dict[str, Validator]:
     if not hasattr(_cache, "store"):
@@ -133,6 +136,9 @@ def _check_session_shape(records: list[dict[str, Any]], name: str) -> Report:
         )
 
     terminals = [r for r in records if r.get("kind") == "terminated"]
+    # The hooks run after the agent's write, so a record they append can land
+    # after the agent's own last line. Only the agent's records must end there.
+    agent_written = [r for r in records if r.get("kind") not in HOOK_KINDS]
     if not terminals:
         report.error(
             name,
@@ -140,7 +146,7 @@ def _check_session_shape(records: list[dict[str, Any]], name: str) -> Report:
             "a run without a recorded stopping reason cannot be compared with "
             "other runs -- see DESIGN.md section 3",
         )
-    elif records[-1].get("kind") != "terminated":
+    elif agent_written[-1].get("kind") != "terminated":
         report.error(name, "the 'terminated' record is not the last line")
     elif len(terminals) > 1:
         report.error(name, f"session log has {len(terminals)} 'terminated' records, expected 1")

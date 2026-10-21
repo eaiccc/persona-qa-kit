@@ -10,7 +10,7 @@
   "properties": {
     "kind": {
       "type": "string",
-      "enum": ["observation", "persona_injection", "blocked", "terminated"]
+      "enum": ["observation", "persona_injection", "drift_breach", "blocked", "terminated"]
     },
     "step": {
       "type": "integer",
@@ -94,6 +94,22 @@
     },
 
     {
+      "title": "drift_breach",
+      "description": "Written by the persona-drift-check hook, not by the agent, when a newly appended record contains a term from the card's `never_uses`. The record that breached stays exactly as written: the log is append-only, and the remedy for drift is to stop, not to rephrase. DESIGN.md section 4.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "step", "ts", "term", "field", "quote"],
+      "properties": {
+        "kind": { "const": "drift_breach" },
+        "step": { "type": "integer", "minimum": 0 },
+        "ts": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "term": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "field": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "quote": { "type": "string", "minLength": 1, "maxLength": 300 }
+      }
+    },
+
+    {
       "title": "blocked",
       "description": "Repeated interaction with no observable state change. DESIGN.md section 3: an agent stuck in a loop has usually found the defect, so this is recorded rather than silently retried.",
       "type": "object",
@@ -131,6 +147,7 @@
             "step_budget",
             "blocked",
             "out_of_scope",
+            "persona_drift",
             "operator_abort"
           ]
         },

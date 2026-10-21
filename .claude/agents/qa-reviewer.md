@@ -45,7 +45,9 @@ an unenforced minimum reliably produces "looks fine".
    error message closely, retried nine times, opened a settings screen the card
    lists as out of scope — reject as `persona_drift_artifact`. The finding may
    be entirely real. It is not what this run was for, and accepting it lets a
-   drifted session look like a successful one.
+   drifted session look like a successful one. If the log has a `drift_breach`
+   record, anything citing that step or later is this case by definition, and
+   the gate refuses to let you accept it.
 4. **Is it already filed?** Same fingerprint or same underlying cause: `merged`,
    with `merged_into` pointing at the survivor.
 5. **Are severity and confidence right, and are they independent?** Adjust with

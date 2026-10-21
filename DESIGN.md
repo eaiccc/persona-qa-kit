@@ -185,6 +185,13 @@ defects a QA engineer would find, which you already had covered.
   condition," that is drift, detectable by string matching rather than judgment.
   A cheap deterministic check catches a failure mode that would otherwise
   require another model call to notice.
+- **A breach ends the session; it is not edited away.** The obvious response to
+  "you used a forbidden word" is to remove the word, which leaves a clean log
+  and a drift report with nothing in it. So the hook records the breach in the
+  log, the session stops there with reason `persona_drift`, and the log is
+  append-only — a ledger of prefix digests makes any edit to an earlier record
+  fail the gate. Steps before the breach remain evidence; findings citing the
+  breach or anything after it cannot be accepted.
 - **Post-hoc evaluation.** `persona-evaluator` scores each run for persona
   consistency and writes it to `evaluation.json`. This produces a meta-layer the
   rest of the pipeline lacks: an assessment not of the product, but of whether

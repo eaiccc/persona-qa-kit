@@ -45,9 +45,13 @@ The instruction you are reading is only how you find out about it.
    session started before the conditions were fixed; that run is not salvageable
    and you should start a new one rather than sealing retroactively.
 
+   Sealing also marks the run active, which is how the hooks find it. An
+   environment variable exported from your Bash calls would not reach them.
+
 5. **Dispatch, in order, waiting for each:**
    `user-agent` → `qa-agent` → `qa-reviewer` → `persona-evaluator`.
-   Set `PQA_RUN_DIR` so the hooks find the right run.
+   The review gate runs as each one stops and holds it to its own artifact:
+   user-agent to the session log, qa-agent to the candidates, and so on.
 
 6. **Gate before reporting anything.**
    ```bash
@@ -66,6 +70,9 @@ The instruction you are reading is only how you find out about it.
 - **You do not raise the step budget after seeing the session stop early.**
 
 ## Reporting
+
+If the session ended with `persona_drift`, say so first: findings from that
+step onward were rejected by design, not overlooked.
 
 Report: run id, persona and version, target build, how the session ended, how
 many candidates were proposed and how many survived review, and the evaluator's
