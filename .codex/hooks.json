@@ -1,0 +1,53 @@
+{
+  "PreToolUse": [
+    {
+      "matcher": "Bash|apply_patch",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$(git rev-parse --show-toplevel)/adapters/codex/hook.sh\" guard",
+          "timeout": 20,
+          "statusMessage": "persona-qa-kit: run guard"
+        }
+      ]
+    }
+  ],
+  "PostToolUse": [
+    {
+      "matcher": "Bash|apply_patch",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$(git rev-parse --show-toplevel)/adapters/codex/hook.sh\" drift",
+          "timeout": 20,
+          "statusMessage": "persona-qa-kit: persona drift check"
+        }
+      ]
+    }
+  ],
+  "SubagentStop": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$(git rev-parse --show-toplevel)/adapters/codex/hook.sh\" gate",
+          "timeout": 30,
+          "statusMessage": "persona-qa-kit: review gate"
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$(git rev-parse --show-toplevel)/adapters/codex/hook.sh\" gate",
+          "timeout": 30,
+          "statusMessage": "persona-qa-kit: review gate"
+        }
+      ]
+    }
+  ]
+}

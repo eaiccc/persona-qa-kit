@@ -9,7 +9,12 @@
     "after the run is over.",
     "",
     "qa-review-gate runs on Stop and SubagentStop, which is where an agent would",
-    "otherwise declare itself finished."
+    "otherwise declare itself finished. It is staged: a stopping subagent is held",
+    "to what its role must have produced (user-agent: a valid session log;",
+    "qa-reviewer: the review), from tools/pqa/roles.py. Stop gets the full gate.",
+    "",
+    "The checks are `pqa`, shared with the Codex and Antigravity adapters; see",
+    "docs/platforms.md."
   ],
 
   "hooks": {
@@ -19,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/hooks/persona-drift-check.sh",
+            "command": "$CLAUDE_PROJECT_DIR/adapters/claude/hook.sh drift",
             "timeout": 20
           }
         ]
@@ -32,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/hooks/qa-review-gate.sh",
+            "command": "$CLAUDE_PROJECT_DIR/adapters/claude/hook.sh gate",
             "timeout": 30
           }
         ]
@@ -45,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/hooks/qa-review-gate.sh",
+            "command": "$CLAUDE_PROJECT_DIR/adapters/claude/hook.sh gate",
             "timeout": 30
           }
         ]

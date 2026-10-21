@@ -16,15 +16,31 @@ from typing import Any
 
 from . import drift, fingerprint, personas, validate
 from .core import PqaError, Report, RunDir, digest_file, read_json
+from .roles import DEFAULT_STAGE, STAGES
 
-__all__ = ["run_gate"]
+__all__ = ["run_gate", "STAGES", "DEFAULT_STAGE"]
 
 _SEVERITY_RANK = {"blocker": 0, "major": 1, "minor": 2, "cosmetic": 3}
 _CONFIDENCE_RANK = {"confirmed": 0, "probable": 1, "possible": 2, "speculative": 3}
 
 
-def run_gate(run: RunDir) -> Report:
-    """Every gate check, in dependency order. Later stages skip if inputs failed."""
+def run_gate(run: RunDir, stage: str = DEFAULT_STAGE) -> Report:
+    """Every gate check up to `stage`, in dependency order.
+
+    Stages are cumulative and follow the pipeline (see roles.STAGES):
+
+      session     manifest, persona binding, session log, drift
+      candidates  + findings.candidates.json
+      review      + findings.reviewed.json    (the default; the historical gate)
+      evaluation  + evaluation.json
+
+    A stage is the answer to "what must be true once this role stops". Gating
+    user-agent's stop on the review would demand an artifact that cannot exist
+    yet; gating it on nothing would let it stop without a valid session log.
+    """
+    if stage not in STAGES:
+        raise PqaError(f"unknown gate stage {stage!r}; expected one of {', '.join(STAGES)}")
+    depth = STAGES.index(stage)
     report = Report()
 
     manifest = _check_manifest(run, report)
@@ -37,9 +53,18 @@ def run_gate(run: RunDir) -> Report:
     if records is not None and card is not None:
         _check_drift(manifest, card, records, report)
 
+    if depth < STAGES.index("candidates"):
+        return report
     candidates = _check_candidates(run, manifest, records, report)
+
+    if depth < STAGES.index("review"):
+        return report
     if candidates is not None:
         _check_review(run, manifest, candidates, records, report)
+
+    if depth < STAGES.index("evaluation"):
+        return report
+    _check_evaluation(run, manifest, report)
 
     return report
 
@@ -495,6 +520,51 @@ def _check_accepted(
                 )
 
     _check_findings(accepted, run, records, "findings.reviewed.json", report)
+
+
+# --------------------------------------------------------------------------
+# stage 7: the evaluation
+# --------------------------------------------------------------------------
+
+def _check_evaluation(run: RunDir, manifest: dict[str, Any], report: Report) -> None:
+    report.checks_run += 1
+
+    if not run.evaluation.exists():
+        report.error(
+            "evaluation.json",
+            "missing -- persona-evaluator has not run",
+            "without it a drifted run and a trustworthy one look identical "
+            "(DESIGN.md section 4)",
+        )
+        return
+
+    try:
+        evaluation = read_json(run.evaluation)
+    except PqaError as exc:
+        report.error("evaluation.json", str(exc))
+        return
+
+    schema_report = validate.check_instance(
+        evaluation, "evaluation.schema.json", "evaluation.json"
+    )
+    report.extend(schema_report)
+    if not schema_report.ok:
+        return
+
+    report.checks_run += 2
+    if evaluation.get("run_id") != manifest.get("run_id"):
+        report.error(
+            "evaluation.json",
+            f"run_id {evaluation.get('run_id')!r} does not match run.json",
+        )
+    declared = manifest.get("persona", {})
+    scored = evaluation.get("persona", {})
+    if (scored.get("id"), scored.get("version")) != (declared.get("id"), declared.get("version")):
+        report.error(
+            "evaluation.json",
+            f"scores persona {scored.get('id')} v{scored.get('version')}, but the run "
+            f"was sealed for {declared.get('id')} v{declared.get('version')}",
+        )
 
 
 # --------------------------------------------------------------------------

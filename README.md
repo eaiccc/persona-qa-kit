@@ -84,14 +84,14 @@ should be a constraint.
 | Failure mode | What stops it | Where |
 |---|---|---|
 | Agent certifies its own work | The session log schema has no `severity`, `pass`, or `status` field, and `additionalProperties` is false | [schemas/session-record.schema.json](schemas/session-record.schema.json) |
-| Review gets skipped | Missing or invalid `findings.reviewed.json` blocks completion with exit code 2 | [hooks/qa-review-gate.sh](hooks/qa-review-gate.sh) |
+| Review gets skipped | Missing or invalid `findings.reviewed.json` blocks completion; each stopping role is gated at its own stage | [tools/pqa/gate.py](tools/pqa/gate.py), [adapters/claude/hook.sh](adapters/claude/hook.sh) |
 | A candidate is quietly dropped | Every candidate must have exactly one review; the mapping is checked in both directions | [tools/pqa/gate.py](tools/pqa/gate.py) |
 | Findings are unfalsifiable prose | Every finding validates against a schema; free text is confined to named fields | [schemas/finding.schema.json](schemas/finding.schema.json) |
 | Fabricated defects | `evidence_refs` must resolve to real session steps and real files | [tools/pqa/gate.py](tools/pqa/gate.py) |
 | Defects lose identity between runs | `fingerprint` is derived from constrained values and recomputed by the gate | [tools/pqa/fingerprint.py](tools/pqa/fingerprint.py) |
 | Stopping conditions moved mid-run | `run.json` is hashed into `run.lock` before execution and rechecked after | [tools/pqa/gate.py](tools/pqa/gate.py) |
 | Reviewer rewrites the defect | Accepted findings must match their candidate's fingerprint; only severity and confidence may be adjusted | [tools/pqa/gate.py](tools/pqa/gate.py) |
-| Persona drift | `never_uses` terms are string-matched mid-session and fail the step | [hooks/persona-drift-check.sh](hooks/persona-drift-check.sh) |
+| Persona drift | `never_uses` terms are string-matched mid-session and fail the step | [tools/pqa/live.py](tools/pqa/live.py), [adapters/claude/hook.sh](adapters/claude/hook.sh) |
 | Persona card edited mid-run | The card digest is bound into `run.json` and verified | [tools/pqa/gate.py](tools/pqa/gate.py) |
 
 Each row has a test that breaks exactly that one thing and asserts the gate
@@ -128,13 +128,25 @@ the output is well-formed and nobody should believe it.
 DESIGN.md              the argument; read this first
 personas/*.yaml        persona cards, versioned independently of agent code
 schemas/*.json         the artifact contracts
-.claude/agents/*.md    the five agent definitions
-.claude/settings.json  hook wiring
-hooks/*.sh             the two enforcement hooks
+.claude/agents/*.md    the five agent definitions -- the only copy, on every platform
+.claude/settings.json  Claude Code hook wiring
+.codex/                Codex CLI hook wiring and generated custom agents
+.agents/hooks.json     Antigravity hook wiring (interactive use)
+adapters/<platform>/   thin hook shims; the Codex generator; the Antigravity SDK runner
 tools/pqa/             the CLI and every deterministic check
 examples/runs/         one complete, gate-passing run
-tests/                 129 tests, stdlib unittest
+examples/smoke-app/    a one-screen app for smoke-testing an adapter
+tests/                 177 tests, stdlib unittest
 ```
+
+## Other platforms
+
+The same pipeline runs on Codex CLI and Google Antigravity. The checks, schemas,
+personas and agent instructions are shared; each platform gets a hook shim, and
+Antigravity, whose hooks cannot tell agents apart, gets an SDK runner that gives
+each role its own agent. What each platform can enforce and what it can only
+request differs, and [docs/platforms.md](docs/platforms.md) says exactly which
+is which.
 
 ## Writing a persona
 

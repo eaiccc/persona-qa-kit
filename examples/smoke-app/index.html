@@ -1,0 +1,54 @@
+<!doctype html>
+<!--
+  A deliberately tiny app for smoke-testing a platform adapter end to end
+  (docs/platforms.md). One screen, one planted defect: the list lives only in
+  memory, so it is gone after a reload -- which is exactly what the
+  time-starved-parent card's success criteria test for.
+
+  Serve it with:  python3 -m http.server 8765 --directory examples/smoke-app
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shopping list</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 22rem; margin: 2rem auto; padding: 0 1rem; }
+    input { font-size: 1rem; padding: .5rem; width: 65%; }
+    button { font-size: 1rem; padding: .5rem 1rem; background: #2e7d32; color: #fff; border: 0; border-radius: 6px; }
+    li { padding: .4rem 0; border-bottom: 1px solid #eee; }
+    .empty { color: #888; }
+  </style>
+</head>
+<body>
+  <h1>Shopping list</h1>
+  <form id="add">
+    <input id="item" placeholder="Add something" autocomplete="off">
+    <button type="submit">Add</button>
+  </form>
+  <ul id="list"></ul>
+  <p id="empty" class="empty">Nothing on your list yet.</p>
+  <script>
+    const items = [];  // the planted defect: never persisted
+    const list = document.getElementById("list");
+    const empty = document.getElementById("empty");
+    function render() {
+      list.innerHTML = "";
+      for (const text of items) {
+        const li = document.createElement("li");
+        li.textContent = text;
+        list.appendChild(li);
+      }
+      empty.hidden = items.length > 0;
+    }
+    document.getElementById("add").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const input = document.getElementById("item");
+      if (input.value.trim()) items.push(input.value.trim());
+      input.value = "";
+      render();
+    });
+    render();
+  </script>
+</body>
+</html>
