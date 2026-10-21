@@ -504,6 +504,13 @@ class TestScenarioFiles(KitTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("offline@2", result.stdout)
 
+    def test_malformed_scenario_is_listed_as_invalid(self):
+        (self.root / "scenarios" / "broken.yaml").write_text("id: broken\nEOF\nnot yaml\n")
+        result = pqa("scenarios", home=self.root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("INVALID broken", result.stdout)
+        self.assertNotIn("Traceback", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,48 @@
+# The second half of exam-photo-to-quiz-cards. That run stopped at the review
+# screen with nothing saved, so saving and the quiz were never reached, and it
+# used only the two upright JPEG worksheets. Here the parent accepts imperfect
+# cards for tonight, and the photos are the ones the first run left untouched:
+# the sideways HEIC worksheet and a textbook page.
+id: photo-to-quiz-try-tonight
+version: 1.0.0
+title: Save imperfect photo cards tonight and let the child try a quiz
+target: memoryforge
+
+task: >-
+  今晚時間不多，卡片不用完美。用相簿裡那張橫著拍的成語列車（五）和那一頁國語課文，
+  各做一份卡片並存起來，然後開一次測驗讓孩子試幾題，看看孩子會被怎麼考、考完會看到什麼。
+
+entry:
+  surface: deck/list
+  state: 剛安裝好、第一次打開的 app；可能先跳出個資同意視窗，牌組頁可能已有範例牌組
+
+preconditions:
+  - App 剛安裝、第一次打開，免費版、沒有訂閱，還沒有她自己建的牌組
+  - 相簿裡有成語列車（五，橫著拍）和國語課文一頁，另有兩張直拍的成語列車
+  - 手機的網路連線正常
+
+success_criteria:
+  - 成語列車（五）那張照片做出的卡片，存進了某個牌組
+  - 國語課文那一頁做出的卡片，存進了某個牌組
+  - 用存下來的卡片開始了一次測驗，並作答了至少三題
+  - 測驗結束後看到了結果畫面
+
+in_scope_surfaces:
+  - onboarding
+  - deck/list
+  - deck/detail
+  - photo/pick
+  - photo/extract
+  - photo/review
+  - card/edit
+  - quiz/setup
+  - quiz/session
+  - quiz/result
+  - paywall
+
+notes: >-
+  (五) is a landscape HEIC whose content is rotated 90 degrees; the answers in
+  its blanks are the child's handwriting with red-pen corrections. The textbook
+  page is a clean grade-3 Chinese page with no handwriting. Saving imperfect
+  cards is in character here because the task says so, not because the persona
+  stopped caring: she still notices what is wrong with them.
