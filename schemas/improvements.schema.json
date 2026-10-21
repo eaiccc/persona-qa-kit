@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "improvements.schema.json",
+  "title": "Improvement recommendations",
+  "description": "Written by `feedback-synthesizer` from `pqa report --format json` and the reviewed findings it aggregates -- never from session logs or candidates. Checked by `pqa check-improvements`, which verifies that every cited fingerprint is an accepted finding in a gated run, that every quote is a persona's user_voice verbatim, and that no blocker or major defect is silently left out.\n\nThe synthesizer judges what to change, not whether anything is a defect: that was settled by qa-reviewer, and this file cannot add a defect the review did not accept.",
+
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["generated_at", "generated_by", "source_runs", "recommendations"],
+
+  "properties": {
+    "generated_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "generated_by": { "const": "feedback-synthesizer" },
+
+    "source_runs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/run_id" },
+      "description": "The runs the report was built from. Each must be an included (gate-passing) run."
+    },
+
+    "recommendations": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "change", "addresses", "user_voice", "personas", "priority", "rationale"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^R-[0-9]{3}$" },
+          "title": { "type": "string", "minLength": 8, "maxLength": 120 },
+          "change": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 800,
+            "description": "What to change, in product terms -- what a person using the app would notice is different. Not an implementation plan: nobody in this pipeline has seen the code."
+          },
+          "addresses": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": { "$ref": "common.schema.json#/$defs/fingerprint" }
+          },
+          "user_voice": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["fingerprint", "quote"],
+              "properties": {
+                "fingerprint": { "$ref": "common.schema.json#/$defs/fingerprint" },
+                "quote": {
+                  "type": "string",
+                  "minLength": 5,
+                  "maxLength": 600,
+                  "description": "Verbatim from a finding's user_voice (a contiguous excerpt is fine). Checked."
+                }
+              }
+            }
+          },
+          "personas": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": { "$ref": "common.schema.json#/$defs/persona_id" }
+          },
+          "scenarios": {
+            "type": "array",
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": { "$ref": "common.schema.json#/$defs/scenario_id" }
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["now", "next", "later"],
+            "description": "Ordering for the team, not a restatement of severity: a minor defect hit by every persona can come before a major one hit by one."
+          },
+          "rationale": { "type": "string", "minLength": 20, "maxLength": 800 },
+          "open_questions": {
+            "type": "array",
+            "maxItems": 5,
+            "items": { "type": "string", "minLength": 10, "maxLength": 300 },
+            "description": "What a human would need to find out before acting -- usually something no run covered."
+          }
+        }
+      }
+    },
+
+    "not_addressed": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "Accepted defects deliberately left out, with the reason. Required for any blocker or major defect not cited by a recommendation.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fingerprint", "reason"],
+        "properties": {
+          "fingerprint": { "$ref": "common.schema.json#/$defs/fingerprint" },
+          "reason": { "type": "string", "minLength": 10, "maxLength": 400 }
+        }
+      }
+    }
+  }
+}

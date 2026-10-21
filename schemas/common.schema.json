@@ -13,6 +13,45 @@
       "description": "Filename stem of a card in personas/, e.g. 'time-starved-parent'."
     },
 
+    "scenario_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 3,
+      "maxLength": 60,
+      "description": "Filename stem of a scenario in scenarios/, e.g. 'checkout-interrupted'."
+    },
+
+    "perturbation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at_step", "do"],
+      "description": "Something that happens TO the session at a fixed step, decided before the run starts. Sealed into run.json with the rest of the scenario, injected by the persona-drift-check hook when the step is reached, and recorded in session.jsonl as a `perturbation` record. The gate checks that every perturbation that fell due was recorded, on time, exactly once.",
+      "properties": {
+        "at_step": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "description": "Applied immediately after step N is recorded, so step N+1 is the first thing the persona does under it."
+        },
+        "do": {
+          "type": "string",
+          "enum": ["background", "offline", "slow_network", "rotate", "interrupt", "lock_screen", "kill"],
+          "description": "A closed set, so that runs with the same perturbation are comparable and so the hook can tell the agent what to actually do to the device."
+        },
+        "for": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,3} ?(s|m|steps?)$",
+          "description": "How long it lasts: seconds ('45s'), minutes ('2m'), or steps ('3 steps'). Omit for instantaneous perturbations such as rotate or kill."
+        },
+        "note": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200,
+          "description": "The in-world cause, in plain words ('the train goes into a tunnel'). Shown to user-agent with the perturbation; never copied into the session log."
+        }
+      }
+    },
+
     "semver": {
       "type": "string",
       "pattern": "^\\d+\\.\\d+\\.\\d+$"

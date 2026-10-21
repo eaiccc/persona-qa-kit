@@ -1,0 +1,43 @@
+# Finish a purchase that gets interrupted twice. Written for a shop app; copy it
+# and change `target`, `entry` and `in_scope_surfaces` for your own.
+id: checkout-interrupted
+version: 1.0.0
+title: Buy what is in the basket, with interruptions
+target: shop-app
+
+task: >-
+  Buy the thing that is already in your basket and get to the screen that says
+  the order went through.
+
+entry:
+  surface: checkout/basket
+  state: the basket, with one item in it
+
+preconditions:
+  - One in-stock item is already in the basket
+  - The app is in its payment test mode with a test card saved on the account
+
+success_criteria:
+  - A confirmation screen appears showing an order number
+  - The basket is empty once the order is confirmed
+  - Exactly one new order appears in the order history
+
+in_scope_surfaces:
+  - checkout
+  - orders
+
+perturbations:
+  - at_step: 3
+    do: interrupt
+    for: 45s
+    note: someone calls just as the payment screen opens
+  - at_step: 5
+    do: background
+    for: 2m
+    note: the doorbell goes and the phone is put down mid-payment
+
+notes: >-
+  The interesting question is what happens to a payment that was submitted just
+  before the app went to the background: a second charge, no charge, or a
+  confirmation that never arrives. The third success criterion is there to make
+  a duplicate order observable.

@@ -10,7 +10,7 @@
   "properties": {
     "kind": {
       "type": "string",
-      "enum": ["observation", "persona_injection", "blocked", "terminated"]
+      "enum": ["observation", "intent", "outcome", "persona_injection", "perturbation", "blocked", "terminated"]
     },
     "step": {
       "type": "integer",
@@ -18,6 +18,25 @@
       "description": "Monotonic within a run. Referenced by `evidence_refs` in findings."
     },
     "ts": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+
+  "$defs": {
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "target"],
+      "properties": {
+        "class": { "$ref": "common.schema.json#/$defs/action_class" },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "What was acted on, as the persona would name it ('the blue Save button'), not as the DOM names it."
+        },
+        "surface": { "$ref": "common.schema.json#/$defs/surface" },
+        "input": { "type": "string", "maxLength": 500 }
+      }
+    }
   },
 
   "oneOf": [
@@ -31,22 +50,7 @@
         "step": { "type": "integer", "minimum": 1 },
         "ts": { "$ref": "common.schema.json#/$defs/timestamp" },
 
-        "action": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["class", "target"],
-          "properties": {
-            "class": { "$ref": "common.schema.json#/$defs/action_class" },
-            "target": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200,
-              "description": "What was acted on, as the persona would name it ('the blue Save button'), not as the DOM names it."
-            },
-            "surface": { "$ref": "common.schema.json#/$defs/surface" },
-            "input": { "type": "string", "maxLength": 500 }
-          }
-        },
+        "action": { "$ref": "#/$defs/action" },
 
         "expected": {
           "type": "string",
@@ -75,6 +79,74 @@
           "items": { "type": "string", "minLength": 1, "maxLength": 300 },
           "description": "Paths relative to the run directory, e.g. 'screenshots/step-004.png'."
         }
+      }
+    },
+
+    {
+      "title": "intent",
+      "description": "The first half of a two-phase step: what the persona is about to do and what they expect, written BEFORE acting. Optional -- a step is either one `observation`, or an `intent` followed by an `outcome` with the same step number. When used, the gate checks the ordering mechanically: an intent written after its outcome is an expectation fitted to the result, which is the thing the `expected` field exists to prevent.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "step", "ts", "action", "expected"],
+      "properties": {
+        "kind": { "const": "intent" },
+        "step": { "type": "integer", "minimum": 1 },
+        "ts": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "action": { "$ref": "#/$defs/action" },
+        "expected": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 500,
+          "description": "What the persona expects to happen. Committed before the outcome exists."
+        }
+      }
+    },
+
+    {
+      "title": "outcome",
+      "description": "The second half of a two-phase step. Has no `expected` field on purpose: the expectation was committed in the intent record and cannot be restated once the result is known.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "step", "ts", "action", "observed", "felt"],
+      "properties": {
+        "kind": { "const": "outcome" },
+        "step": { "type": "integer", "minimum": 1 },
+        "ts": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "action": { "$ref": "#/$defs/action" },
+        "observed": { "type": "string", "minLength": 3, "maxLength": 1000 },
+        "felt": { "type": "string", "minLength": 3, "maxLength": 400 },
+        "artifacts": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+        }
+      }
+    },
+
+    {
+      "title": "perturbation",
+      "description": "Written by the persona-drift-check hook, not by the agent, when a sealed scenario perturbation falls due. The gate checks that every due perturbation has exactly one of these, that it matches what was sealed, and that it landed before the next step.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "step", "ts", "index", "at_step", "do", "scenario_id", "scenario_digest"],
+      "properties": {
+        "kind": { "const": "perturbation" },
+        "step": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The last recorded step when the perturbation was injected. Equal to at_step unless the hook fired late."
+        },
+        "ts": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position in run.json scenario.perturbations."
+        },
+        "at_step": { "type": "integer", "minimum": 1 },
+        "do": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "for": { "type": "string", "maxLength": 20 },
+        "scenario_id": { "$ref": "common.schema.json#/$defs/scenario_id" },
+        "scenario_digest": { "$ref": "common.schema.json#/$defs/digest" }
       }
     },
 

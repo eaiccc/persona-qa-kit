@@ -14,15 +14,18 @@ KIT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(KIT / "tools"))
 
 EXAMPLE = KIT / "examples" / "runs" / "2026-08-15-notes-app"
+SCENARIO_EXAMPLE = KIT / "examples" / "runs" / "2026-08-22-notes-app-offline"
 
 
 class KitTestCase(unittest.TestCase):
-    """Copies schemas, personas and the example run into a temp PQA_HOME.
+    """Copies schemas, personas, scenarios and an example run into a temp PQA_HOME.
 
     Tests mutate the copy freely. Every gate test works by taking a run that is
     known to pass and breaking exactly one thing, which is the only way to know
     a check is load-bearing rather than decorative.
     """
+
+    example = EXAMPLE
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -30,8 +33,9 @@ class KitTestCase(unittest.TestCase):
         (self.root / "runs").mkdir(parents=True)
         shutil.copytree(KIT / "schemas", self.root / "schemas")
         shutil.copytree(KIT / "personas", self.root / "personas")
-        self.run_path = self.root / "runs" / "2026-08-15-notes-app"
-        shutil.copytree(EXAMPLE, self.run_path)
+        shutil.copytree(KIT / "scenarios", self.root / "scenarios")
+        self.run_path = self.root / "runs" / self.example.name
+        shutil.copytree(self.example, self.run_path)
 
         self._prev_home = os.environ.get("PQA_HOME")
         os.environ["PQA_HOME"] = str(self.root)
@@ -64,6 +68,16 @@ class KitTestCase(unittest.TestCase):
 
     def write(self, name: str, data) -> None:
         (self.run_path / name).write_text(json.dumps(data, indent=2) + "\n")
+
+    def session(self) -> list[dict]:
+        path = self.run_path / "session.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+    def write_session(self, records: list[dict], redigest: bool = True) -> None:
+        path = self.run_path / "session.jsonl"
+        path.write_text("".join(json.dumps(r, separators=(",", ":")) + "\n" for r in records))
+        if redigest:
+            self.redigest()
 
     def reseal(self) -> None:
         """Re-issue run.lock after a legitimate manifest edit."""

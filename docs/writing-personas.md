@@ -100,6 +100,13 @@ A criterion that turns out to be unreachable is a result, not a failed run —
 `goal_unreachable` is a legitimate termination reason, and for
 `screen-reader-commuter` on an inaccessible build it is the expected one.
 
+A card's criteria are the **fallback**. When a run binds a scenario
+(`pqa new-run --scenario`), the scenario's criteria replace them, and the
+scenario's task replaces the card's `goals` in the re-injected summary. So keep
+task-specific detail out of the card. Pointing a persona at a new task is a new
+scenario, not a card edit that would break comparison with every earlier run of
+that persona. See [writing-scenarios.md](writing-scenarios.md).
+
 ## `out_of_scope` prevents borrowed findings
 
 List the surfaces this person would never touch. Anything found there is an

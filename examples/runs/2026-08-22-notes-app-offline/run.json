@@ -1,0 +1,75 @@
+{
+  "run_id": "2026-08-22-notes-app-offline",
+  "created_at": "2026-08-22T07:58:12Z",
+  "created_by": "qa-orchestrator",
+  "persona": {
+    "id": "screen-reader-commuter",
+    "version": "1.0.0",
+    "card_digest": "sha256:e81d5ba21f246eecded5271b27a2dc018d481c200d614719b9896cbb973da6ac"
+  },
+  "scenario": {
+    "id": "note-capture-offline",
+    "version": "1.0.0",
+    "scenario_digest": "sha256:cea283b80941b616491d12091e0687907b4cc2e0f480cd1ae69c8984704ce18c",
+    "task": "Write down something you need to remember, while the phone keeps losing its signal, and make sure it is still there afterwards.",
+    "entry": {
+      "surface": "notes/list",
+      "state": "the list of notes, with one existing note called Shopping list"
+    },
+    "perturbations": [
+      {
+        "at_step": 2,
+        "do": "offline",
+        "for": "3 steps",
+        "note": "the train goes into a tunnel"
+      },
+      {
+        "at_step": 6,
+        "do": "background",
+        "for": "30s",
+        "note": "a phone call comes in and takes over the screen"
+      }
+    ],
+    "preconditions": [
+      "The app is installed, signed in, and has one note called Shopping list",
+      "The device starts with a working connection"
+    ]
+  },
+  "target": {
+    "name": "notes-app",
+    "build": "b7e9f01",
+    "platform": "iOS 18.4, iPhone 15, VoiceOver",
+    "entrypoint": "TestFlight build 431"
+  },
+  "stopping_conditions": {
+    "step_budget": 30,
+    "goal_satisfaction": {
+      "success_criteria": [
+        "The new note appears in the list after the connection comes back",
+        "The new note is still in the list after the app is closed and reopened",
+        "The app showed or read out whether the note had been saved"
+      ],
+      "criteria_source": "scenario",
+      "allow_unreachable": true
+    },
+    "blocked_state": {
+      "no_state_change_steps": 3
+    },
+    "scope_bounds": {
+      "out_of_scope": [
+        "Desktop or web version",
+        "Visual design and colour",
+        "Settings beyond notification preferences",
+        "Anything requiring a photo to be taken"
+      ],
+      "in_scope_surfaces": [
+        "notes/list",
+        "notes/editor"
+      ]
+    }
+  },
+  "drift_control": {
+    "reinject_every_steps": 8,
+    "enforce_never_uses": true
+  }
+}

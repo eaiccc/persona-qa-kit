@@ -1,0 +1,39 @@
+{
+  "generated_at": "2026-08-22T09:20:00Z",
+  "generated_by": "feedback-synthesizer",
+  "source_runs": ["2026-08-15-notes-app", "2026-08-22-notes-app-offline"],
+
+  "recommendations": [
+    {
+      "id": "R-001",
+      "title": "Keep a note from the first word typed, whatever happens next",
+      "change": "A note exists as soon as someone starts typing it. Leaving the app, losing the connection, or pressing Done with no signal should never leave the list without it; at worst it is marked as not yet synced.",
+      "addresses": ["pqa1:305363d41af26da9", "pqa1:84852121b0795bed"],
+      "user_voice": [
+        { "fingerprint": "pqa1:305363d41af26da9", "quote": "my note is gone. I typed all that out for nothing" },
+        { "fingerprint": "pqa1:84852121b0795bed", "quote": "I wrote that whole thing on the train for nothing" }
+      ],
+      "personas": ["time-starved-parent", "screen-reader-commuter"],
+      "scenarios": ["note-capture-offline"],
+      "priority": "now",
+      "rationale": "Two blockers, two personas, two builds, two different interruptions -- backgrounding and an offline save -- with the same result: typed text gone. They have different fingerprints because they happen on different actions, but from the people quoted they are one experience, and one change (keep a local draft from the first keystroke) plausibly addresses both.",
+      "open_questions": [
+        "Nobody has re-run the backgrounding case on build b7e9f01; time-starved-parent x note-capture-offline is an empty cell in the coverage matrix and would test both at once."
+      ]
+    },
+    {
+      "id": "R-002",
+      "title": "Say whether a note was saved, on screen and out loud",
+      "change": "After Done, the person is told one of two things -- saved, or not saved and why -- and the message is both visible and spoken by VoiceOver. Staying on the same screen with nothing said is never the outcome.",
+      "addresses": ["pqa1:5c9768281b4dc1ac"],
+      "user_voice": [
+        { "fingerprint": "pqa1:5c9768281b4dc1ac", "quote": "I have no idea if any of this is saved" },
+        { "fingerprint": "pqa1:5c9768281b4dc1ac", "quote": "it did not read anything out. no idea if that saved" }
+      ],
+      "personas": ["time-starved-parent", "screen-reader-commuter"],
+      "scenarios": ["note-capture-offline"],
+      "priority": "now",
+      "rationale": "The only defect found by both personas, on both builds, by sight and by ear. Without it the people quoted cannot tell R-001's failure from success, which is why they each gave up rather than retrying."
+    }
+  ]
+}

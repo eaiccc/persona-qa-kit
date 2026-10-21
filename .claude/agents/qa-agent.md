@@ -81,6 +81,19 @@ required. A finding you cannot point at is one you should not file.
 ```
 The gate recomputes it. A hand-written value that does not match fails the run.
 
+## Scenario runs
+
+When `run.json` binds a scenario, its `success_criteria` are the completion
+test and its `task` is what the persona came to do. `perturbation` records in
+the log mark the sealed interruptions: what was done to the device (`do`), and
+the step it followed (`at_step`). They are context the persona didn't write.
+They aren't evidence on their own, and they're never `user_voice`. Use them to
+locate a defect: a loss that appears after a `background` perturbation but not
+before it is a different finding from one that was already there.
+
+In two-phase steps, `expected` is in the `intent` record and
+`observed`/`felt` are in the `outcome`. Cite the step number either way.
+
 ## Blocked records are findings
 
 A `blocked` record in the log means the session repeated an action with no

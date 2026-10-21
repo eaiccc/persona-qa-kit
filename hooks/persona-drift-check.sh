@@ -18,6 +18,11 @@
 # The second only catches lexical drift. An agent can avoid every forbidden term
 # and still troubleshoot with a patience the persona does not have; that is what
 # persona-evaluator is for, and it is a softer guard.
+#
+# The same tick delivers a bound scenario's perturbations: once the step a
+# perturbation was sealed to is on the log, it appends a `perturbation` record
+# and hands the instruction back in the same JSON envelope. The gate checks
+# every due perturbation was recorded on time (docs/writing-scenarios.md).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -49,7 +54,8 @@ if [ "$STATUS" -ne 0 ]; then
   exit 2
 fi
 
-# On cadence steps this is the JSON envelope carrying the persona summary back
-# into context. On every other step it is empty and nothing happens.
+# On cadence steps, and on steps a scenario perturbation falls due, this is the
+# JSON envelope carrying the persona summary and/or the perturbation back into
+# context. On every other step it is empty and nothing happens.
 [ -n "$OUTPUT" ] && printf '%s\n' "$OUTPUT"
 exit 0

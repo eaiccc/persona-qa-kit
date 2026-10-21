@@ -1,0 +1,38 @@
+{
+  "run_id": "2026-08-22-notes-app-offline",
+  "evaluated_at": "2026-08-22T08:55:00Z",
+  "evaluated_by": "persona-evaluator",
+  "persona": {
+    "id": "screen-reader-commuter",
+    "version": "1.0.0"
+  },
+  "consistency": {
+    "overall": 0.9,
+    "first_half": 0.92,
+    "second_half": 0.88,
+    "trend": "stable"
+  },
+  "dimensions": {
+    "vocabulary": 0.97,
+    "patience": 0.9,
+    "reading_behavior": 0.88,
+    "goal_fidelity": 0.9,
+    "scope_adherence": 1.0
+  },
+  "drift": {
+    "lexical_violations": [],
+    "injection_steps": [
+      8
+    ],
+    "behavioral_notes": [
+      "Observations quote what VoiceOver spoke rather than describing the screen, which is the card's strongest tell and it holds throughout.",
+      "Step 5 is in character: one Done press, then a sequential swipe through the page instead of a second press. The card's error_response says he changes navigation mode before concluding a screen is unusable.",
+      "Intent records were written before each outcome and none restate the outcome in hindsight; step 7's expectation ('now that I have signal again') commits to the hopeful reading before the list is heard."
+    ]
+  },
+  "trust": {
+    "verdict": "trustworthy",
+    "rationale": "In character for all eight steps, no vocabulary breaches, stays within the scenario's two surfaces, and both sealed perturbations are on the log at the steps they were sealed for. Short session, so drift had little room to develop."
+  },
+  "notes": "The scenario's task replaced the card's own goal (checking an order) in the re-injected summary at step 8, so goal_fidelity is scored against the scenario task."
+}

@@ -24,20 +24,31 @@ The instruction you are reading is only how you find out about it.
    basis of who would actually hit the area under test, not who is convenient.
    If the user named a persona, use that one.
 
-2. **Set the step budget.** Default 40. Raise it for deep multi-screen flows,
+2. **Choose the scenario, if there is one.** `./bin/pqa scenarios` lists them.
+   A scenario supplies the task, the success criteria, the in-scope surfaces,
+   and the perturbations (interruptions sealed to a step number). Use one
+   whenever the run is meant to test a specific flow. Without one, the
+   persona's generic criteria are the completion test, and runs of different
+   flows can't be told apart afterwards. If the user named a flow and no
+   scenario fits, say so rather than running without one.
+
+3. **Set the step budget.** Default 40. Raise it for deep multi-screen flows,
    lower it for a single-surface smoke run. The right value is empirical and
    app-specific — that is why it is a flag and not a constant. State your
    reasoning in one line, because the number is otherwise arbitrary and will be
    copied forward forever.
 
-3. **Write the manifest.**
+4. **Write the manifest.**
    ```bash
-   ./bin/pqa new-run --persona <id> --target <app> --build <sha> --budget <n>
+   ./bin/pqa new-run --persona <id> --scenario <id> --target <app> --build <sha> --budget <n>
    ```
-   Success criteria and out-of-scope bounds are copied from the persona card.
-   Do not hand-edit them into something easier to satisfy.
+   Success criteria come from the scenario (or the card, without one), and
+   out-of-scope bounds come from the card. Do not hand-edit them into
+   something easier to satisfy. The gate compares a scenario run's criteria
+   and perturbations against the scenario file. `new-run` refuses a budget
+   too short to reach the scenario's last perturbation.
 
-4. **Seal it.**
+5. **Seal it.**
    ```bash
    ./bin/pqa seal runs/<run-id>
    ```
@@ -45,11 +56,14 @@ The instruction you are reading is only how you find out about it.
    session started before the conditions were fixed; that run is not salvageable
    and you should start a new one rather than sealing retroactively.
 
-5. **Dispatch, in order, waiting for each:**
+6. **Dispatch, in order, waiting for each:**
    `user-agent` → `qa-agent` → `qa-reviewer` → `persona-evaluator`.
-   Set `PQA_RUN_DIR` so the hooks find the right run.
+   Set `PQA_RUN_DIR` so the hooks find the right run. With a scenario, give
+   user-agent the run directory and nothing about the perturbations. The hook
+   injects each one when its step is reached, and a persona who knows the
+   tunnel is coming doesn't behave like one who doesn't.
 
-6. **Gate before reporting anything.**
+7. **Gate before reporting anything.**
    ```bash
    ./bin/pqa gate runs/<run-id>
    ```
@@ -67,7 +81,8 @@ The instruction you are reading is only how you find out about it.
 
 ## Reporting
 
-Report: run id, persona and version, target build, how the session ended, how
+Report: run id, persona and version, scenario and version (if any), target
+build, how the session ended, how
 many candidates were proposed and how many survived review, and the evaluator's
 trust verdict. If trust is `degraded`, say so before the findings, along with
 `usable_through_step` — findings after that point are real but they are a QA

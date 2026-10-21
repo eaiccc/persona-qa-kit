@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from .core import PqaError, Report, RunDir, read_json, read_jsonl
+from .scenarios import STEP_KINDS
 
 __all__ = ["RunSummary", "collect", "analyze", "render_table"]
 
@@ -95,7 +96,7 @@ def _summarize(run: RunDir) -> RunSummary:
         for _, record in records:
             if not isinstance(record, dict):
                 continue
-            if record.get("kind") == "observation":
+            if record.get("kind") in STEP_KINDS:
                 summary.observations += 1
             elif record.get("kind") == "terminated":
                 summary.terminate_reason = record.get("reason", "")

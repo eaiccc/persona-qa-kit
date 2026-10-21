@@ -33,7 +33,16 @@ qa-reviewer         accepts / rejects each one           did not propose them
 persona-evaluator   scores the run, not the app          -> evaluation.json
 
   [qa-review-gate]  a shell hook, not an instruction
+
+across runs:
+pqa report          aggregates reviewed findings         defects x personas x scenarios
+feedback-synthesizer  writes improvement recommendations -> improvements.json (checked)
 ```
+
+A run is **persona × scenario**. The persona card says who is using the app; an
+optional scenario (`scenarios/*.yaml`) says what they came to do, where they
+start, what counts as done, and which interruptions will hit the session at
+which step. Both are digest-bound into the sealed manifest.
 
 Four agents instead of one, because an agent asked to both perform work and
 judge that work optimizes for a coherent narrative rather than an accurate one.
@@ -49,20 +58,29 @@ wherever the pipeline runs.
 ./bin/pqa validate --self-check
 ```
 
-Look at the worked example before starting your own run. It is a complete,
-gate-passing run of nine steps against a fictional notes app:
+Look at the worked examples before starting your own run. Both are complete,
+gate-passing runs against a fictional notes app, one build apart. The second
+binds the `note-capture-offline` scenario: its session has hook-written
+`perturbation` records and two-phase `intent`/`outcome` steps.
 
 ```bash
 ./bin/pqa gate examples/runs/2026-08-15-notes-app
+./bin/pqa gate examples/runs/2026-08-22-notes-app-offline
+./bin/pqa report examples/runs
 ```
 
 Then start a real one:
 
 ```bash
 ./bin/pqa personas
-./bin/pqa new-run --persona time-starved-parent --target my-app --build $(git rev-parse --short HEAD)
+./bin/pqa scenarios
+./bin/pqa new-run --persona time-starved-parent --scenario note-capture-offline \
+    --target my-app --build $(git rev-parse --short HEAD)
 ./bin/pqa seal runs/2026-08-15-my-app
 ```
+
+`--scenario` is optional. Without it, the card's own success criteria are the
+completion test.
 
 `seal` refuses to run once `session.jsonl` exists. That is the point: stopping
 conditions chosen after seeing the results are not stopping conditions.
@@ -72,6 +90,7 @@ Then dispatch `qa-orchestrator`, which drives the rest. When it finishes:
 ```bash
 ./bin/pqa gate runs/2026-08-15-my-app
 ./bin/pqa signals runs/
+./bin/pqa report runs/ -o report.md
 ```
 
 ## What is actually enforced
@@ -93,6 +112,10 @@ should be a constraint.
 | Reviewer rewrites the defect | Accepted findings must match their candidate's fingerprint; only severity and confidence may be adjusted | [tools/pqa/gate.py](tools/pqa/gate.py) |
 | Persona drift | `never_uses` terms are string-matched mid-session and fail the step | [hooks/persona-drift-check.sh](hooks/persona-drift-check.sh) |
 | Persona card edited mid-run | The card digest is bound into `run.json` and verified | [tools/pqa/gate.py](tools/pqa/gate.py) |
+| Scenario edited, or easier criteria swapped in | The scenario digest is bound into `run.json`; the sealed task, perturbations and success criteria must match the file | [tools/pqa/gate.py](tools/pqa/gate.py) |
+| An interruption silently skipped | Every sealed perturbation that fell due needs exactly one hook-written record, on time, matching what was sealed | [tools/pqa/gate.py](tools/pqa/gate.py) |
+| Expectation written to fit the result | With `intent`/`outcome` steps, the intent must precede its outcome, and an outcome has no `expected` field | [tools/pqa/validate.py](tools/pqa/validate.py) |
+| Recommendations paraphrase or invent | `check-improvements` requires accepted fingerprints, verbatim `user_voice` quotes, and no silently dropped blockers | [tools/pqa/report.py](tools/pqa/report.py) |
 
 Each row has a test that breaks exactly that one thing and asserts the gate
 refuses. A check nobody has watched fail is a check you do not know you have.
@@ -122,18 +145,46 @@ Some properties cannot be enforced per-run, only observed across runs.
 These describe the pipeline, not the app. All four firing on a green gate means
 the output is well-formed and nobody should believe it.
 
+## Improvement feedback
+
+`pqa report` is the other cross-run view. It describes the app, built only from
+`findings.reviewed.json` of runs that pass the gate:
+
+```bash
+./bin/pqa report runs/                  # Markdown to stdout
+./bin/pqa report runs/ --format json    # input for feedback-synthesizer
+```
+
+- **defects by fingerprint**: which personas and scenarios hit each one, the
+  build it was first seen in, and whether the latest build still shows it. A
+  defect missing from the latest build is "not re-tested" unless a run on that
+  build covered a cell where it was seen before.
+- **a persona × scenario coverage matrix**, with empty cells listed as gaps and
+  each run's own `coverage_note` underneath
+- **improvement suggestions**, one per defect, ranked by severity and then by
+  how many personas hit it, each quoting `user_voice` verbatim
+
+For recommendations that take judgment (grouping defects into one change,
+ordering them), dispatch `feedback-synthesizer`. It reads only the report and
+writes `improvements.json`, and `pqa check-improvements` rejects the file if it
+cites an unaccepted defect, paraphrases a quote, or drops a blocker without
+saying why. [examples/improvements.json](examples/improvements.json) is a
+passing example.
+
 ## Layout
 
 ```
 DESIGN.md              the argument; read this first
 personas/*.yaml        persona cards, versioned independently of agent code
+scenarios/*.yaml       tasks, success criteria and sealed perturbations
 schemas/*.json         the artifact contracts
-.claude/agents/*.md    the five agent definitions
+.claude/agents/*.md    the six agent definitions
 .claude/settings.json  hook wiring
 hooks/*.sh             the two enforcement hooks
 tools/pqa/             the CLI and every deterministic check
-examples/runs/         one complete, gate-passing run
-tests/                 129 tests, stdlib unittest
+examples/runs/         two complete, gate-passing runs (one with a scenario)
+examples/improvements.json  a feedback-synthesizer output that passes its check
+tests/                 194 tests, stdlib unittest
 ```
 
 ## Writing a persona
@@ -145,6 +196,13 @@ detection from a judgment call into a string match.
 Three cards ship as starting points: `time-starved-parent` (interrupted,
 impatient, low tech literacy), `cautious-first-timer` (its opposite on every
 behavioural dial), and `screen-reader-commuter`.
+
+## Writing a scenario
+
+[docs/writing-scenarios.md](docs/writing-scenarios.md) covers tasks, observable
+success criteria, perturbations and two-phase steps. Two scenarios ship:
+`note-capture-offline` (the signal drops out mid-note, then a call comes in) and
+`checkout-interrupted` (a call and a backgrounding during payment).
 
 ## What this does not buy
 
