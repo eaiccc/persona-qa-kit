@@ -43,6 +43,7 @@ class HookTestCase(KitTestCase):
     def gate_hook(self, agent=None, event="SubagentStop"):
         from pqa.hook import gate_hook
 
+        os.environ.pop("PQA_ROLE", None)
         return gate_hook(payload(agent, event))
 
     def strip_to(self, *keep):
@@ -164,25 +165,26 @@ class TestGateCannotLoopForever(HookTestCase):
 class TestShellWiring(HookTestCase):
     """The scripts settings.json actually calls, end to end."""
 
-    def run_script(self, name, stdin):
+    def run_script(self, which, stdin):
         env = dict(os.environ, PQA_HOME=str(self.root), NO_COLOR="1")
         return subprocess.run(
-            [str(KIT / "hooks" / name)], input=stdin, capture_output=True, text=True, env=env,
+            [str(KIT / "adapters" / "claude" / "hook.sh"), which],
+            input=stdin, capture_output=True, text=True, env=env,
         )
 
     def test_gate_script_lets_user_agent_stop(self):
         self.strip_to()
-        result = self.run_script("qa-review-gate.sh", payload("user-agent"))
+        result = self.run_script("gate", payload("user-agent"))
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_gate_script_blocks_with_exit_two(self):
         self.strip_to()
-        result = self.run_script("qa-review-gate.sh", payload("qa-agent"))
+        result = self.run_script("gate", payload("qa-agent"))
         self.assertEqual(result.returncode, 2)
         self.assertIn("findings.candidates.json", result.stderr)
 
     def test_drift_script_is_quiet_on_a_clean_log(self):
-        result = self.run_script("persona-drift-check.sh", "{}")
+        result = self.run_script("drift", "{}")
         self.assertEqual(result.returncode, 0, result.stderr)
 
 

@@ -16,14 +16,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
-from . import drift, fingerprint, gate, hook, personas, report, scenarios, signals, validate
+from . import (
+    drift, fingerprint, gate, guard, hook, hookio, live, personas, report, roles,
+    scenarios, signals, validate,
+)
 from .core import (
-    PqaError, Report, RunDir, colorize, digest_file, iso_now, kit_root, read_jsonl,
-    set_active,
+    PqaError, Report, RunDir, active_run, colorize, digest_file, iso_now, kit_root,
+    read_jsonl, set_active,
 )
 
 EXIT_OK = 0
@@ -202,9 +206,17 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
 
 def cmd_gate(args: argparse.Namespace) -> int:
+    if args.format != "text":
+        # The gate as a Stop / SubagentStop hook; see hook.gate_hook.
+        run_dir = Path(args.run_dir) if args.run_dir else None
+        return hook.gate_hook(_stdin(), args.format, run_dir, args.stage).emit()
+
+    if args.run_dir is None:
+        raise PqaError("pass a run directory (only hook formats locate the run themselves)")
     run = RunDir.open(args.run_dir)
-    report = gate.run_gate(run, args.stage)
-    suffix = "" if args.stage == "final" else f" (stage: {args.stage})"
+    stage = gate.DEFAULT_STAGE if args.stage == "auto" else args.stage
+    report = gate.run_gate(run, stage)
+    suffix = "" if stage == gate.DEFAULT_STAGE else f" (stage: {stage})"
     print(report.render(f"review gate: {run.path.name}{suffix}"))
 
     if not report.ok:
@@ -219,6 +231,24 @@ def cmd_gate(args: argparse.Namespace) -> int:
         )
         return EXIT_VIOLATION
     return EXIT_OK
+
+
+def _stdin() -> str:
+    """The hook payload, optionally appended to $PQA_HOOK_LOG for inspection."""
+    if sys.stdin is None or sys.stdin.isatty():
+        return ""
+    try:
+        raw = sys.stdin.read()
+    except (OSError, ValueError):
+        return ""
+    log = os.environ.get("PQA_HOOK_LOG")
+    if log and raw.strip():
+        try:
+            with open(log, "a", encoding="utf-8") as handle:
+                handle.write(raw.strip().replace("\n", " ") + "\n")
+        except OSError:
+            pass
+    return raw
 
 
 def cmd_drift(args: argparse.Namespace) -> int:
@@ -258,31 +288,46 @@ def cmd_drift(args: argparse.Namespace) -> int:
 
 
 def cmd_drift_tick(args: argparse.Namespace) -> int:
-    """One live drift check against an explicit run directory.
+    """One live drift check: the persona-drift-check hook, in each platform's envelope.
 
-    The same check the persona-drift-check hook makes through `pqa hook drift`,
-    for running by hand or from a harness that cannot pass hook JSON. See
-    hook.drift_tick for what it does and, as importantly, what it no longer
-    does: ask anyone to rewrite the log.
+    Claude Code and Codex call it after a write (PostToolUse); Antigravity, whose
+    PostToolUse can neither block nor inject, calls it before each model call
+    (PreInvocation). See hook.drift_tick for what it checks and, as importantly,
+    what it no longer does: ask anyone to rewrite the log.
     """
-    return _emit(hook.drift_tick(RunDir.open(args.run_dir)))
+    if args.run_dir:
+        # Named by hand (or by a runner), not by a harness: there is no hook
+        # payload to read, and waiting on stdin for one would hang.
+        return hook.drift_hook("", args.format, Path(args.run_dir)).emit()
+    return hook.drift_hook(_stdin(), args.format).emit()
 
 
-def cmd_hook(args: argparse.Namespace) -> int:
-    """Hook entry points. Read the harness's JSON on stdin, answer by exit code."""
-    stdin_text = "" if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read()
-    if args.which == "gate":
-        return _emit(hook.gate_hook(stdin_text))
-    return _emit(hook.drift_hook(stdin_text))
+def cmd_guard(args: argparse.Namespace) -> int:
+    """PreToolUse: refuse a tool call that would break the run. See guard.py."""
+    payload = hookio.read_payload()
+    run_dir = Path(args.run_dir) if args.run_dir else active_run()
+    run = None
+    if run_dir is not None and (Path(run_dir) / "run.json").exists():
+        run = RunDir.open(run_dir)
+
+    role = roles.lookup(args.role or hookio.agent_type(payload))
+    intent = hookio.intent_from_payload(payload)
+    try:
+        reason = guard.evaluate(intent, cwd=hookio.payload_cwd(payload), run=run,
+                                role=role, kit=kit_root())
+    except PqaError as exc:
+        reason = f"the run guard could not check this call: {exc}"
+    if reason:
+        return hookio.deny(args.format, reason).emit()
+    return hookio.allow(args.format).emit()
 
 
-def _emit(result: "hook.Result") -> int:
-    if result.stdout:
-        print(result.stdout)
-        sys.stdout.flush()
-    if result.stderr:
-        print(result.stderr, file=sys.stderr)
-    return result.code
+def cmd_record(args: argparse.Namespace) -> int:
+    """Append one validated session record, then run the drift tick on it."""
+    raw = args.record if args.record != "-" else sys.stdin.read()
+    ok, message = live.record(RunDir.open(args.run_dir), raw)
+    print(message, file=sys.stdout if ok else sys.stderr)
+    return EXIT_OK if ok else EXIT_VIOLATION
 
 
 def cmd_signals(args: argparse.Namespace) -> int:
@@ -379,6 +424,12 @@ def cmd_inject(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_digest(args: argparse.Namespace) -> int:
+    """The `sha256:<hex>` form that session_digest and candidates_digest expect."""
+    print(digest_file(args.path))
+    return EXIT_OK
+
+
 def cmd_fingerprint(args: argparse.Namespace) -> int:
     print(fingerprint.compute(args.surface, args.action, args.symptom))
     return EXIT_OK
@@ -430,22 +481,36 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_validate)
 
     p = sub.add_parser("gate", help="the review gate; exits 2 if the run may not advance")
-    p.add_argument("run_dir")
-    p.add_argument("--stage", choices=gate.STAGES, default="final",
-                   help="check only as far as this stage (default: final)")
+    p.add_argument("run_dir", nargs="?",
+                   help="run directory (hook formats locate the active run when omitted)")
+    p.add_argument("--stage", choices=("auto",) + roles.STAGES, default="auto",
+                   help="check only what must exist once this stage's role stops. 'auto' "
+                        "(default) means 'final' from the command line, and in a hook "
+                        "the stopping agent's stage, from its agent_type or $PQA_ROLE")
+    p.add_argument("--format", choices=hookio.FORMATS, default="text",
+                   help="'text' for people; otherwise the hook envelope of that platform")
     p.set_defaults(func=cmd_gate)
 
     p = sub.add_parser("drift", help="lexical persona drift check")
     p.add_argument("run_dir")
     p.set_defaults(func=cmd_drift)
 
-    p = sub.add_parser("drift-tick", help="one live drift check against a run directory")
-    p.add_argument("run_dir")
+    p = sub.add_parser("drift-tick", help="live drift check, called by the hook mid-session")
+    p.add_argument("run_dir", nargs="?", help="run directory (default: the active run)")
+    p.add_argument("--format", choices=hookio.FORMATS[1:], default="claude",
+                   help="hook envelope to emit (default: claude)")
     p.set_defaults(func=cmd_drift_tick)
 
-    p = sub.add_parser("hook", help="hook entry point; reads the harness's JSON on stdin")
-    p.add_argument("which", choices=("gate", "drift"))
-    p.set_defaults(func=cmd_hook)
+    p = sub.add_parser("guard", help="PreToolUse guard: deny writes that would break the run")
+    p.add_argument("run_dir", nargs="?", help="run directory (default: the active run)")
+    p.add_argument("--format", choices=hookio.FORMATS, default="text")
+    p.add_argument("--role", help="acting role, when the payload carries no agent_type")
+    p.set_defaults(func=cmd_guard)
+
+    p = sub.add_parser("record", help="append one validated record to session.jsonl")
+    p.add_argument("run_dir")
+    p.add_argument("record", help="one JSON object, or - to read it from stdin")
+    p.set_defaults(func=cmd_record)
 
     p = sub.add_parser("signals", help="cross-run pipeline health")
     p.add_argument("runs_dir", nargs="?", default=str(kit_root() / "runs"))
@@ -479,6 +544,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="emit a persona_injection JSONL record instead of the prose block")
     p.add_argument("--step", type=int, default=0)
     p.set_defaults(func=cmd_inject)
+
+    p = sub.add_parser("digest", help="print a file's digest, as artifacts cite it")
+    p.add_argument("path")
+    p.set_defaults(func=cmd_digest)
 
     p = sub.add_parser("fingerprint", help="compute a defect fingerprint")
     p.add_argument("--surface", required=True)

@@ -1,0 +1,34 @@
+{
+  "persona-qa-drift": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "../adapters/antigravity/hook.sh drift",
+        "timeout": 20
+      }
+    ]
+  },
+  "persona-qa-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "../adapters/antigravity/hook.sh guard",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  },
+  "persona-qa-gate": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "../adapters/antigravity/hook.sh gate",
+        "timeout": 30
+      }
+    ]
+  }
+}

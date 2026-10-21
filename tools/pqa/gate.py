@@ -16,21 +16,21 @@ from typing import Any
 
 from . import drift, fingerprint, ledger, personas, scenarios, validate
 from .core import PqaError, Report, RunDir, digest_file, read_json
+from .roles import DEFAULT_STAGE, STAGES
 
-__all__ = ["run_gate", "STAGES"]
+__all__ = ["run_gate", "STAGES", "DEFAULT_STAGE"]
 
 _SEVERITY_RANK = {"blocker": 0, "major": 1, "minor": 2, "cosmetic": 3}
 _CONFIDENCE_RANK = {"confirmed": 0, "probable": 1, "possible": 2, "speculative": 3}
 
-# How far through the pipeline a run is expected to be. Each stage checks
-# everything the earlier ones do plus its own artifact, so the gate can run when
-# each agent finishes rather than only at the end. Gating user-agent on a review
-# that cannot exist yet does not enforce the order of the pipeline; it stops the
-# pipeline from ever reaching the review.
-STAGES = ("session", "candidates", "review", "final")
+# Stages come from roles.STAGES: how far through the pipeline a run is expected
+# to be. Each stage checks everything the earlier ones do plus its own artifact,
+# so the gate can run as each agent finishes rather than only at the end.
+# Gating user-agent on a review that cannot exist yet does not enforce the order
+# of the pipeline; it stops the pipeline from ever reaching the review.
 
 
-def run_gate(run: RunDir, stage: str = "final") -> Report:
+def run_gate(run: RunDir, stage: str = DEFAULT_STAGE) -> Report:
     """Every check up to `stage`, in dependency order. Later checks skip if inputs failed."""
     if stage not in STAGES:
         raise PqaError(f"unknown stage {stage!r} (expected one of: {', '.join(STAGES)})")
@@ -56,6 +56,8 @@ def run_gate(run: RunDir, stage: str = "final") -> Report:
     if depth < STAGES.index("candidates"):
         return report
 
+    if depth < STAGES.index("candidates"):
+        return report
     candidates = _check_candidates(run, manifest, records, report)
     if depth < STAGES.index("review"):
         return report

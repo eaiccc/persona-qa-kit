@@ -109,7 +109,7 @@ should be a constraint.
 | Failure mode | What stops it | Where |
 |---|---|---|
 | Agent certifies its own work | The session log schema has no `severity`, `pass`, or `status` field, and `additionalProperties` is false | [schemas/session-record.schema.json](schemas/session-record.schema.json) |
-| Review gets skipped | Missing or invalid `findings.reviewed.json` blocks completion with exit code 2. Each agent is gated on its own stage as it stops, so the pipeline can advance but cannot skip | [hooks/qa-review-gate.sh](hooks/qa-review-gate.sh), [tools/pqa/hook.py](tools/pqa/hook.py) |
+| Review gets skipped | Missing or invalid `findings.reviewed.json` blocks completion. Each stopping role is gated at its own stage, so the pipeline can advance but cannot skip | [tools/pqa/gate.py](tools/pqa/gate.py), [tools/pqa/hook.py](tools/pqa/hook.py) |
 | Trust verdict omitted | The final stage requires `evaluation.json`, and its lexical violations must include every breach the string match finds | [tools/pqa/gate.py](tools/pqa/gate.py) |
 | A candidate is quietly dropped | Every candidate must have exactly one review; the mapping is checked in both directions | [tools/pqa/gate.py](tools/pqa/gate.py) |
 | Findings are unfalsifiable prose | Every finding validates against a schema; free text is confined to named fields | [schemas/finding.schema.json](schemas/finding.schema.json) |
@@ -117,8 +117,8 @@ should be a constraint.
 | Defects lose identity between runs | `fingerprint` is derived from constrained values and recomputed by the gate | [tools/pqa/fingerprint.py](tools/pqa/fingerprint.py) |
 | Stopping conditions moved mid-run | `run.json` is hashed into `run.lock` before execution and rechecked after | [tools/pqa/gate.py](tools/pqa/gate.py) |
 | Reviewer rewrites the defect | Accepted findings must match their candidate's fingerprint; only severity and confidence may be adjusted | [tools/pqa/gate.py](tools/pqa/gate.py) |
-| Persona drift | `never_uses` terms are string-matched against each new record mid-session; a hit is recorded and ends the session, and nothing from that step on may be accepted | [hooks/persona-drift-check.sh](hooks/persona-drift-check.sh) |
-| Evidence edited after the fact | `session.jsonl` is append-only: the drift hook keeps a ledger of prefix digests, and the gate re-derives every one | [tools/pqa/ledger.py](tools/pqa/ledger.py) |
+| Persona drift | `never_uses` terms are string-matched against each new record mid-session; a hit is recorded and ends the session, and nothing from that step on may be accepted | [tools/pqa/hook.py](tools/pqa/hook.py) |
+| Evidence edited after the fact | `session.jsonl` is append-only: the drift hook keeps a ledger of prefix digests that the gate re-derives, and the PreToolUse guard refuses edits and overwrites | [tools/pqa/ledger.py](tools/pqa/ledger.py), [tools/pqa/guard.py](tools/pqa/guard.py) |
 | Persona card edited mid-run | The card digest is bound into `run.json` and verified | [tools/pqa/gate.py](tools/pqa/gate.py) |
 | Scenario edited, or easier criteria swapped in | The scenario digest is bound into `run.json`; the sealed task, perturbations and success criteria must match the file | [tools/pqa/gate.py](tools/pqa/gate.py) |
 | An interruption silently skipped | Every sealed perturbation that fell due needs exactly one hook-written record, on time, matching what was sealed | [tools/pqa/gate.py](tools/pqa/gate.py) |
@@ -186,14 +186,26 @@ DESIGN.md              the argument; read this first
 personas/*.yaml        persona cards, versioned independently of agent code
 scenarios/*.yaml       tasks, success criteria and sealed perturbations
 schemas/*.json         the artifact contracts
-.claude/agents/*.md    the six agent definitions
-.claude/settings.json  hook wiring
-hooks/*.sh             the two enforcement hooks
+.claude/agents/*.md    the six agent definitions -- the only copy, on every platform
+.claude/settings.json  Claude Code hook wiring
+.codex/                Codex CLI hook wiring and generated custom agents
+.agents/hooks.json     Antigravity hook wiring (interactive use)
+adapters/<platform>/   thin hook shims; the Codex generator; the Antigravity SDK runner
 tools/pqa/             the CLI and every deterministic check
 examples/runs/         two complete, gate-passing runs (one with a scenario)
 examples/improvements.json  a feedback-synthesizer output that passes its check
-tests/                 231 tests, stdlib unittest
+examples/smoke-app/    a one-screen app for smoke-testing an adapter
+tests/                 283 tests, stdlib unittest
 ```
+
+## Other platforms
+
+The same pipeline runs on Codex CLI and Google Antigravity. The checks, schemas,
+personas and agent instructions are shared; each platform gets a hook shim, and
+Antigravity, whose hooks cannot tell agents apart, gets an SDK runner that gives
+each role its own agent. What each platform can enforce and what it can only
+request differs, and [docs/platforms.md](docs/platforms.md) says exactly which
+is which.
 
 ## Writing a persona
 

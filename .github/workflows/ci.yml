@@ -52,4 +52,4 @@ jobs:
       - name: Check hook scripts
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck hooks/*.sh bin/pqa
+          shellcheck adapters/*/hook.sh bin/pqa
