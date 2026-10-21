@@ -124,7 +124,7 @@ starts.
 
 **How it runs.** `pqa new-run` copies the perturbations into `run.json`, and
 `pqa seal` hashes them along with everything else. During the session, the
-`persona-drift-check` hook runs `pqa drift-tick` after every write. Once step N
+`persona-drift-check` hook runs `pqa hook drift` after every write. Once step N
 is on the log (an `observation`, or the `outcome` half of a two-phase step),
 the tick:
 
