@@ -126,5 +126,20 @@ class TestCadence(unittest.TestCase):
         self.assertEqual(drift.cadence_gaps(self._log([]), 0, 24), [])
 
 
+class ShortCjkTermWarningTests(unittest.TestCase):
+    """`pqa validate` warns about one- and two-character CJK never_uses terms."""
+
+    def test_short_cjk_terms_are_listed(self):
+        from pqa.validate import _short_cjk_terms
+        card = {"vocabulary": {"never_uses": ["模型", "演算法", "API", "解析度", "幻", "OCR 2"]}}
+        self.assertEqual(_short_cjk_terms(card), ["模型", "幻"])
+
+    def test_the_parent_card_warns_but_still_passes(self):
+        from pqa.validate import check_persona_file
+        report = check_persona_file(KIT / "personas" / "exam-photo-parent.yaml")
+        self.assertTrue(report.ok)
+        self.assertIn("'模型' is 2 CJK characters", " ".join(w.message for w in report.warnings))
+
+
 if __name__ == "__main__":
     unittest.main()

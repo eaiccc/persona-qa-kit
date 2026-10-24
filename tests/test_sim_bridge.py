@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from support import KIT
 
@@ -26,9 +28,16 @@ class SimBridgeTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.bridge = sim_bridge.Bridge("SIM-UDID", "com.example.app", Path(self.tmp.name))
+        base = Path(self.tmp.name)
+        self.runs = base / "runs"
+        self.runs.mkdir()
+        self.outside = base / "outside"          # stands for anything beyond the workspace
+        self.outside.mkdir()
+        self.bridge = sim_bridge.Bridge("SIM-UDID", "com.example.app", base / "bridge",
+                                        runs_root=self.runs, capture_dir=base / "capture")
         self.calls = []
         self.bridge._run = lambda argv, timeout=60, stdin=None: self.calls.append(argv) or ""
+        self.bridge._capture_png = lambda: b"PNG-BYTES"
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -69,6 +78,107 @@ class SimBridgeTests(unittest.TestCase):
         self.assertTrue(self.response("003")["ok"])
         self.assertEqual(list(self.bridge.requests.glob("*.json")), [])
         self.assertEqual(len(self.bridge.log.read_text(encoding="utf-8").splitlines()), 3)
+
+    # -- files the sandbox can plant (#1 review) --------------------------------
+
+    def victim(self, name="victim.txt"):
+        path = self.outside / name
+        path.write_text("untouched", encoding="utf-8")
+        return path
+
+    def test_a_planted_response_link_is_replaced_not_followed(self):
+        victim = self.victim()
+        os.symlink(victim, self.bridge.responses / "007.json")
+        self.request("007", {"cmd": "terminate"})
+
+        self.bridge.serve_once()
+
+        self.assertEqual(victim.read_text(encoding="utf-8"), "untouched")
+        self.assertFalse((self.bridge.responses / "007.json").is_symlink())
+        self.assertTrue(self.response("007")["ok"])
+
+    def test_a_directory_in_the_way_does_not_stop_the_loop(self):
+        (self.bridge.responses / "008.json").mkdir()
+        self.request("008", {"cmd": "terminate"})
+        self.request("009", {"cmd": "terminate"})
+
+        self.assertEqual(self.bridge.serve_once(), 2)
+
+        self.assertTrue(self.response("009")["ok"])
+        self.assertEqual(list(self.bridge.requests.glob("*.json")), [])
+
+    def test_a_request_link_is_not_followed(self):
+        target = self.outside / "elsewhere.json"
+        target.write_text(json.dumps({"cmd": "terminate"}), encoding="utf-8")
+        os.symlink(target, self.bridge.requests / "010.json")
+
+        self.bridge.serve_once()
+
+        self.assertFalse(self.response("010")["ok"])
+        self.assertEqual(self.calls, [], "a request read through a link must not run")
+        self.assertTrue(target.exists())
+
+    def test_a_log_link_is_not_followed(self):
+        victim = self.victim()
+        os.symlink(victim, self.bridge.log)
+        self.request("011", {"cmd": "terminate"})
+
+        self.assertEqual(self.bridge.serve_once(), 1)
+
+        self.assertEqual(victim.read_text(encoding="utf-8"), "untouched")
+        self.assertTrue(self.response("011")["ok"])
+
+    def test_a_request_id_must_be_a_plain_name(self):
+        self.request(".hidden", {"cmd": "terminate"})
+
+        self.bridge.serve_once()
+
+        self.assertEqual(self.calls, [])
+        self.assertEqual(list(self.bridge.responses.iterdir()), [])
+        self.assertEqual(list(self.bridge.requests.iterdir()), [])
+
+    # -- screenshots stay inside the active run ---------------------------------
+
+    def run_dir(self, name="2026-10-25-run"):
+        run = self.runs / name
+        run.mkdir()
+        (run / "run.json").write_text("{}", encoding="utf-8")
+        return run
+
+    def screenshot(self, run, name="step-001"):
+        with mock.patch.object(sim_bridge, "active_run", return_value=run):
+            return self.bridge.handle({"cmd": "screenshot", "args": [name]})
+
+    def test_a_screenshot_is_saved_in_the_run(self):
+        run = self.run_dir()
+        self.screenshot(run)
+        self.assertEqual((run / "screenshots" / "step-001.png").read_bytes(), b"PNG-BYTES")
+
+    def test_a_screenshots_link_is_refused(self):
+        run = self.run_dir()
+        os.symlink(self.outside, run / "screenshots")
+        with self.assertRaises(sim_bridge.Refused):
+            self.screenshot(run)
+        self.assertEqual(list(self.outside.iterdir()), [])
+
+    def test_a_planted_screenshot_link_is_replaced_not_followed(self):
+        run = self.run_dir()
+        (run / "screenshots").mkdir()
+        victim = self.victim("victim.png")
+        os.symlink(victim, run / "screenshots" / "step-001.png")
+
+        self.screenshot(run)
+
+        self.assertEqual(victim.read_text(encoding="utf-8"), "untouched")
+        self.assertEqual((run / "screenshots" / "step-001.png").read_bytes(), b"PNG-BYTES")
+
+    def test_an_active_run_outside_runs_is_refused(self):
+        elsewhere = self.outside / "fake-run"
+        elsewhere.mkdir()
+        (elsewhere / "run.json").write_text("{}", encoding="utf-8")
+        with self.assertRaises(sim_bridge.Refused):
+            self.screenshot(elsewhere)
+        self.assertFalse((elsewhere / "screenshots").exists())
 
 
 if __name__ == "__main__":
