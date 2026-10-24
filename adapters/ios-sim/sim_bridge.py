@@ -294,11 +294,26 @@ class Bridge:
     # the request loop
     # ----------------------------------------------------------------------
 
+    @staticmethod
+    def _open_regular(name: str, flags: int, dir_fd: int, mode: int = 0o600) -> int:
+        """Open without following a link or blocking on a FIFO, and only a regular file.
+
+        O_NOFOLLOW alone lets a planted FIFO through, and a blocking open of one
+        waits forever (#1 review round 2).
+        """
+        fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, mode, dir_fd=dir_fd)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise Refused(f"{name} must be a regular file")
+            os.set_blocking(fd, True)
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd
+
     def _read_request(self, name: str) -> dict[str, Any]:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.requests_fd)
+        fd = self._open_regular(name, os.O_RDONLY, self.requests_fd)
         with os.fdopen(fd, "rb") as handle:
-            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
-                raise Refused("a request must be a regular file")
             raw = handle.read(MAX_REQUEST_BYTES + 1)
         if len(raw) > MAX_REQUEST_BYTES:
             raise Refused(f"request is larger than {MAX_REQUEST_BYTES} bytes")
@@ -310,7 +325,8 @@ class Bridge:
         tmp = f".{rid}.{secrets.token_hex(6)}.tmp"
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644,
                      dir_fd=self.responses_fd)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        # backslashreplace: a lone surrogate in the text must not fail the write.
+        with os.fdopen(fd, "w", encoding="utf-8", errors="backslashreplace") as handle:
             json.dump({"ok": ok, "output": output}, handle, ensure_ascii=False)
         try:
             os.rename(tmp, f"{rid}.json", src_dir_fd=self.responses_fd, dst_dir_fd=self.responses_fd)
@@ -319,9 +335,8 @@ class Bridge:
             raise
 
     def _append_log(self, entry: dict[str, Any]) -> None:
-        fd = os.open("bridge.log", os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600,
-                     dir_fd=self.root_fd)
-        with os.fdopen(fd, "a", encoding="utf-8") as handle:
+        fd = self._open_regular("bridge.log", os.O_WRONLY | os.O_APPEND | os.O_CREAT, self.root_fd)
+        with os.fdopen(fd, "a", encoding="utf-8", errors="backslashreplace") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     def serve_once(self) -> int:
@@ -354,8 +369,8 @@ class Bridge:
             ):
                 try:
                     step()
-                except OSError as exc:
-                    print(f"sim-bridge: {rid}: {exc}", file=sys.stderr, flush=True)
+                except Exception as exc:  # noqa: BLE001 -- nothing planted may stop the loop
+                    print(f"sim-bridge: {rid}: {type(exc).__name__}: {exc!r}", file=sys.stderr, flush=True)
             handled += 1
         return handled
 

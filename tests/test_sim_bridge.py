@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -136,6 +137,42 @@ class SimBridgeTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertEqual(list(self.bridge.responses.iterdir()), [])
         self.assertEqual(list(self.bridge.requests.iterdir()), [])
+
+    def serve_within(self, seconds=5):
+        """serve_once in a thread, so a hang fails the test instead of stopping the suite."""
+        result = {}
+        worker = threading.Thread(target=lambda: result.update(n=self.bridge.serve_once()), daemon=True)
+        worker.start()
+        worker.join(seconds)
+        self.assertFalse(worker.is_alive(), "serve_once blocked")
+        return result.get("n")
+
+    def test_a_request_fifo_is_refused_without_blocking(self):
+        os.mkfifo(self.bridge.requests / "012.json")
+        self.request("013", {"cmd": "terminate"})
+
+        self.assertEqual(self.serve_within(), 2)
+
+        self.assertFalse(self.response("012")["ok"])
+        self.assertTrue(self.response("013")["ok"])
+
+    def test_a_log_fifo_does_not_block_the_loop(self):
+        os.mkfifo(self.bridge.log)
+        self.request("014", {"cmd": "terminate"})
+
+        self.assertEqual(self.serve_within(), 1)
+
+        self.assertTrue(self.response("014")["ok"])
+
+    def test_a_lone_surrogate_in_args_is_logged_not_fatal(self):
+        (self.bridge.requests / "015.json").write_text('{"cmd": "terminate", "args": ["\\ud800"]}',
+                                                       encoding="utf-8")
+        self.request("016", {"cmd": "terminate"})
+
+        self.assertEqual(self.serve_within(), 2)
+
+        self.assertTrue(self.response("016")["ok"])
+        self.assertEqual(len(self.bridge.log.read_text(encoding="utf-8").splitlines()), 2)
 
     # -- screenshots stay inside the active run ---------------------------------
 
