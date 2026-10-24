@@ -37,7 +37,7 @@ sys.path.insert(0, str(KIT / "tools"))
 from pqa.core import active_run, iso_now  # noqa: E402
 
 MAX_TEXT = 500
-_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$")
+_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,60}")   # used with fullmatch
 _FRAME = re.compile(r"\{\{([-\d.]+), ([-\d.]+)\}, \{([-\d.]+), ([-\d.]+)\}\}")
 _BUTTONS = ("home", "lock", "side-button", "siri")
 _SCROLLS = {"up": "scroll-up", "down": "scroll-down", "left": "scroll-left", "right": "scroll-right"}
@@ -59,6 +59,12 @@ def _number(value: Any, name: str, low: float = 0, high: float = 2000) -> str:
     if not low <= number <= high:
         raise Refused(f"{name} must be between {low} and {high}, got {number}")
     return f"{number:g}"
+
+
+def _point(cmd: str, args: list[Any]) -> tuple[str, str]:
+    if len(args) != 2:
+        raise Refused(f"{cmd} takes two numbers: x y")
+    return _number(args[0], "x", high=1500), _number(args[1], "y", high=1500)
 
 
 def _text(value: Any) -> str:
@@ -141,7 +147,7 @@ class Bridge:
         if cmd == "ui-raw":
             return self._axe("describe-ui")
         if cmd == "tap":
-            x, y = (_number(a, n, high=1500) for a, n in zip(args[:2], ("x", "y")))
+            x, y = _point(cmd, args)
             self._axe("tap", "-x", x, "-y", y)
             return f"tapped ({x}, {y})"
         if cmd == "tap-label":
@@ -149,7 +155,7 @@ class Bridge:
             self._axe("tap", "--label", label, "--wait-timeout", "3")
             return f"tapped the element labelled {label!r}"
         if cmd == "long-press":
-            x, y = (_number(a, n, high=1500) for a, n in zip(args[:2], ("x", "y")))
+            x, y = _point(cmd, args)
             self._axe("touch", "-x", x, "-y", y, "--down", "--up", "--delay", "1.0")
             return f"long-pressed ({x}, {y})"
         if cmd == "type":
@@ -185,7 +191,7 @@ class Bridge:
             return f"pressed {button}"
         if cmd == "screenshot":
             name = str(args[0]) if args else ""
-            if not _NAME.match(name):
+            if not _NAME.fullmatch(name):
                 raise Refused("screenshot needs a plain file name, e.g. step-012")
             run = active_run()
             if run is None:
@@ -218,6 +224,8 @@ class Bridge:
                 output, ok = str(exc), False
             except (json.JSONDecodeError, subprocess.TimeoutExpired, OSError) as exc:
                 output, ok = f"bridge error: {exc}", False
+            except Exception as exc:  # noqa: BLE001 -- one bad request must not stop the bridge
+                output, ok = f"bridge error: {type(exc).__name__}: {exc}", False
             path.unlink(missing_ok=True)
             tmp = self.responses / f".{rid}.tmp"
             tmp.write_text(json.dumps({"ok": ok, "output": output}, ensure_ascii=False),
