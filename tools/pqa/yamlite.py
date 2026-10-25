@@ -25,11 +25,17 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .core import PqaError
+
 __all__ = ["load", "loads", "YamlError", "USING_PYYAML"]
 
 
-class YamlError(Exception):
-    """The document is malformed, or uses a feature outside the supported subset."""
+class YamlError(PqaError):
+    """The document is malformed, or uses a feature outside the supported subset.
+
+    A PqaError, so a malformed card or scenario is reported like any other bad
+    input -- listed as INVALID, or exit 1 -- rather than as a traceback.
+    """
 
 
 try:  # pragma: no cover - environment dependent

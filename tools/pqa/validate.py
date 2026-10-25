@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -289,7 +290,30 @@ def check_persona_file(path: str | Path) -> Report:
             label,
             f"id {data.get('id')!r} does not match the filename stem {Path(path).stem!r}",
         )
+    for term in _short_cjk_terms(data):
+        report.warn(
+            f"{label}: vocabulary.never_uses",
+            f"{term!r} is {len(term)} CJK characters and matches anywhere inside a word",
+            "Chinese and Japanese have no word boundaries, so a one- or two-character "
+            "term can appear in an ordinary sentence and read as drift. Keep it only if "
+            "it is unmistakably technical; otherwise use a longer phrase.",
+        )
     return report
+
+
+_CJK = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+
+
+def _short_cjk_terms(data: Any) -> list[str]:
+    """`never_uses` entries of one or two characters that are all CJK (#1 review)."""
+    if not isinstance(data, dict):
+        return []
+    vocabulary = data.get("vocabulary")
+    terms = vocabulary.get("never_uses") if isinstance(vocabulary, dict) else None
+    if not isinstance(terms, list):
+        return []
+    return [t for t in terms if isinstance(t, str) and 0 < len(t) <= 2
+            and all(_CJK.match(ch) for ch in t)]
 
 
 def check_scenario_file(path: str | Path) -> Report:

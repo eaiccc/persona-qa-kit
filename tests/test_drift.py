@@ -47,6 +47,14 @@ class TestTermMatching(unittest.TestCase):
         # Deliberately not matched: predictability beats recall for a tripwire.
         self.assertFalse(drift.term_pattern("cache").search("caching is broken"))
 
+    def test_cjk_text_has_no_word_boundaries(self):
+        # Chinese is written without spaces. Treating CJK characters as word
+        # characters made every term unmatchable in a Chinese session log.
+        self.assertTrue(drift.term_pattern("模型").search("這個模型認錯字了"))
+        self.assertTrue(drift.term_pattern("OCR").search("應該是OCR辨識錯"))
+        self.assertTrue(drift.term_pattern("prompt").search("改一下prompt就好"))
+        self.assertFalse(drift.term_pattern("API").search("RAPID"))
+
     def test_empty_term_rejected(self):
         with self.assertRaises(ValueError):
             drift.term_pattern("   ")
@@ -116,6 +124,21 @@ class TestCadence(unittest.TestCase):
 
     def test_zero_cadence_is_inert(self):
         self.assertEqual(drift.cadence_gaps(self._log([]), 0, 24), [])
+
+
+class ShortCjkTermWarningTests(unittest.TestCase):
+    """`pqa validate` warns about one- and two-character CJK never_uses terms."""
+
+    def test_short_cjk_terms_are_listed(self):
+        from pqa.validate import _short_cjk_terms
+        card = {"vocabulary": {"never_uses": ["模型", "演算法", "API", "解析度", "幻", "OCR 2"]}}
+        self.assertEqual(_short_cjk_terms(card), ["模型", "幻"])
+
+    def test_the_parent_card_warns_but_still_passes(self):
+        from pqa.validate import check_persona_file
+        report = check_persona_file(KIT / "personas" / "exam-photo-parent.yaml")
+        self.assertTrue(report.ok)
+        self.assertIn("'模型' is 2 CJK characters", " ".join(w.message for w in report.warnings))
 
 
 if __name__ == "__main__":

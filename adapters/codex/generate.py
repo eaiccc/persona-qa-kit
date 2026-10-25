@@ -124,8 +124,9 @@ def render_orchestrator() -> str:
         "next.\n\n"
         "Each subagent's stop is gated by a SubagentStop hook at that role's stage, and\n"
         "your own stop by the full gate. Environment variables you export do not reach\n"
-        "the hooks; they find the run as the newest `runs/*/run.json`, so do not start a\n"
-        "second run in the same checkout while this one is in progress.\n\n"
+        "the hooks; they find the run that `pqa seal` marked active (runs/.active), so\n"
+        "seal before dispatching anyone, and do not seal a second run in this checkout\n"
+        "while this one is in progress.\n\n"
         "---\n\n"
         + definition.body
     )

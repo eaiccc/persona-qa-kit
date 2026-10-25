@@ -1,0 +1,50 @@
+# A parent turns photos of a child's marked idiom worksheets into quiz cards,
+# then starts a quiz. Two questions in one run: does the photo-to-card flow get
+# a non-technical parent to usable cards, and are the AI's cards good quiz
+# material -- right answers, testable fronts, not copied from the child's
+# crossed-out mistakes?
+id: exam-photo-to-quiz-cards
+version: 1.0.0
+title: Turn photos of marked idiom worksheets into quiz cards
+target: memoryforge
+
+task: >-
+  手機相簿裡有孩子的三張「成語列車」學習單（四）（五）（六）和一頁國語課文的照片。
+  用 app 把它們做成可以考孩子的卡片：卡片要能考成語，答案要對。做好後開一次測驗，
+  看孩子會被怎麼考。
+
+entry:
+  surface: deck/list
+  state: 剛安裝好、第一次打開的 app；可能先跳出個資同意視窗，牌組頁可能已有範例牌組
+
+preconditions:
+  - App 剛安裝、第一次打開，免費版、沒有訂閱，還沒有她自己建的牌組
+  - 相簿裡有四張照片：成語列車（四）、成語列車（五，橫著拍）、成語列車（六）、國語課文一頁
+  - 手機的網路連線正常
+
+# Each can be checked by looking at the screen with the worksheet in hand.
+success_criteria:
+  - 至少一張成語學習單的照片，變成了某個牌組裡的卡片
+  - 存下來的卡片每張都在考一個成語：正面是題目，背面有完整的成語
+  - 卡片上的答案和學習單上正確的字一致，沒有照抄孩子寫錯、被紅筆訂正的字
+  - 可以用這些卡片開始一次測驗，畫面一次出一題
+
+in_scope_surfaces:
+  - onboarding
+  - deck/list
+  - deck/detail
+  - photo/pick
+  - photo/extract
+  - photo/review
+  - card/edit
+  - quiz/setup
+  - quiz/session
+  - quiz/result
+  - paywall
+
+notes: >-
+  The worksheets mix print, a child's pencil answers, and a teacher's red-pen
+  corrections, and (五) is photographed sideways as a HEIC. Correct answers are
+  the printed idioms; where the child's answer was corrected, the corrected
+  character is the right one. No perturbations: this run isolates flow and card
+  quality, and the persona's own impatience is interruption enough.

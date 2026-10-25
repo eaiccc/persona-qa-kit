@@ -484,6 +484,14 @@ class TestAdapterFiles(unittest.TestCase):
             self.assertTrue((KIT / shim).exists())
             self.assertTrue(os.access(KIT / shim, os.X_OK), shim)
 
+    def test_codex_hooks_are_nested_under_a_hooks_key(self):
+        # Codex reads {"hooks": {Event: [...]}}. Events at the top level are
+        # silently ignored: nothing appears under /hooks to trust, and no hook
+        # ever fires -- which a shim-path check alone cannot notice.
+        data = json.loads((KIT / ".codex" / "hooks.json").read_text())
+        self.assertEqual(set(data), {"hooks"})
+        self.assertEqual(set(data["hooks"]), {"PreToolUse", "PostToolUse", "SubagentStop", "Stop"})
+
     def test_antigravity_runner_reports_a_missing_sdk(self):
         try:
             import google.antigravity  # noqa: F401
